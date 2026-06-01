@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formas Vivas — Laboratorio de Patrones Reactivos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Canvas full-screen de fondo -->
+    <main class="viewer-container">
+        <video id="bg-video" muted loop playsinline style="display:none;"></video>
+        <audio id="bg-audio" preload="auto" loop style="display:none;"></audio>
+        <svg id="pattern-canvas" width="100%" height="100%"></svg>
+    </main>
+
+    <!-- Panel de control flotante (lateral derecho) -->
+    <aside class="control-panel">
+        <header>
+            <h1>Formas Vivas</h1>
+            <p class="subtitle">Geometría que escucha, se mueve y respira.</p>
+            <p class="header-descrip">Juega, experimenta y crea tus propios patrones vivos.</p>
+        </header>
+        <!-- 1. GEOMETRÍA -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">1</span> Figura <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Define la naturaleza, forma y proporciones del elemento base.</p>
+
+                <div class="slider-control">
+                    <label class="select-label">FORMA</label>
+                    <select id="pattern-select" class="select-control">
+                        <option value="cruz">❖ Cruz</option>
+                        <option value="estrella" selected>★ Estrella</option>
+                        <option value="flor">▲ Triángulo</option>
+                        <option value="sol">■ Cuadrado</option>
+                        <option value="puntos">⁙ Puntos</option>
+                        <option value="petalo">🍃 Pétalo</option>
+                        <option value="circulo">● Círculo</option>
+                        <option value="asterisco">✱ Asterisco</option>
+                        <option value="__upload__">📁 Cargar SVG...</option>
+                    </select>
+                </div>
+
+                <input type="file" id="svg-file" accept=".svg" style="display:none;">
+                <div id="file-name" class="file-status">Sin archivo seleccionado</div>
+
+                <label class="select-label" style="margin-top:12px;">COLOR</label>
+
+                <!-- Color de módulo -->
+                <div class="slider-control">
+                    <label>Color de módulo:</label>
+                    <select id="param-module-color-mode" class="select-control">
+                        <option value="solid" selected>Color pleno</option>
+                        <option value="gradient">Gradiente</option>
+                    </select>
+                </div>
+
+                <div id="module-solid-color" class="color-control">
+                    <label>Color:</label>
+                    <input type="color" id="param-pixel-color" value="#ffffff">
+                </div>
+
+                <!-- Color de fondo -->
+                <div class="slider-control" style="margin-top:12px;">
+                    <label>Color de fondo:</label>
+                    <select id="param-bg-mode" class="select-control">
+                        <option value="solid">Color pleno</option>
+                        <option value="preset" selected>Galería</option>
+                        <option value="gradient">Gradiente</option>
+                        <option value="image">Subir imagen</option>
+                        <option value="video">Subir video</option>
+                    </select>
+                </div>
+
+                <div id="bg-preset-gallery" style="display:none;">
+                    <div class="color-separator"></div>
+                    <div class="preset-grid" id="preset-grid"></div>
+                </div>
+
+                <div id="bg-solid-color" class="color-control">
+                    <label>Color:</label>
+                    <input type="color" id="param-bg-color" value="#ffffff">
+                </div>
+
+                <div id="bg-image-upload" style="display:none;">
+                    <div class="color-separator"></div>
+                    <label for="bg-image-file" class="btn-upload">Seleccionar imagen</label>
+                    <input type="file" id="bg-image-file" accept="image/*" style="display:none;">
+                    <div id="bg-image-status" class="file-status">Sin imagen</div>
+                </div>
+
+                <div id="bg-video-upload" style="display:none;">
+                    <div class="color-separator"></div>
+                    <label for="bg-video-file" class="btn-upload">Seleccionar video MP4</label>
+                    <input type="file" id="bg-video-file" accept="video/mp4" style="display:none;">
+                    <div id="bg-video-status" class="file-status">Sin video</div>
+                </div>
+
+                <!-- Colores de gradiente (compartidos módulo + fondo) -->
+                <div id="shared-gradient-colors" class="gradient-colors" style="display:none;">
+                    <div class="color-control">
+                        <label>Color 1:</label>
+                        <input type="color" id="param-grad-color-1" value="#222222">
+                    </div>
+                    <div class="color-control">
+                        <label>Color 2:</label>
+                        <input type="color" id="param-grad-color-2" value="#555555">
+                    </div>
+                    <div class="color-control">
+                        <label>Color 3:</label>
+                        <input type="color" id="param-grad-color-3" value="#888888">
+                    </div>
+                    <div class="color-control">
+                        <label>Color 4:</label>
+                        <input type="color" id="param-grad-color-4" value="#cccccc">
+                    </div>
+                </div>
+
+                <div class="color-separator"></div>
+
+                <div class="slider-control">                    <label>Tamaño base: <span id="val-base-scale">2.0</span></label>
+                <input type="range" id="param-base-scale" min="0.1" max="2.0" step="0.1" value="2.0">
+                </div>
+                <div class="slider-control">
+                    <label>Estiramiento X: <span id="val-stretch-x">1.0</span></label>
+                    <input type="range" id="param-stretch-x" min="0.2" max="3.0" step="0.1" value="1.0">
+                </div>
+                <div class="slider-control">
+                    <label>Estiramiento Y: <span id="val-stretch-y">1.0</span></label>
+                    <input type="range" id="param-stretch-y" min="0.2" max="3.0" step="0.1" value="1.0">
+                </div>
+                <div class="checkbox-control" style="margin-top:10px;">
+                    <label>
+                        <input type="checkbox" id="param-swap-axes"> Intercambio de ejes de compresión
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. GRILLA -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">2</span> Grilla <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Establece las leyes espaciales y de repetición para distribuir el módulo en el lienzo.</p>
+
+                <div class="slider-control">
+                    <label>Densidad X (columnas): <span id="val-density-x">12</span></label>
+                    <input type="range" id="param-density-x" min="3" max="60" value="12">
+                </div>
+                <div class="slider-control">
+                    <label>Densidad Y (filas): <span id="val-density-y">12</span></label>
+                    <input type="range" id="param-density-y" min="3" max="60" value="12">
+                </div>
+                <div class="slider-control">
+                    <label>Desfase X: <span id="val-offset-x">0.3</span></label>
+                    <input type="range" id="param-offset-x" min="0" max="1" step="0.05" value="0.3">
+                </div>
+                <div class="slider-control">
+                    <label>Desfase Y: <span id="val-offset-y">0</span></label>
+                    <input type="range" id="param-offset-y" min="0" max="1" step="0.05" value="0">
+                </div>
+                <div class="slider-control">
+                    <label>Inversión rápida:</label>
+                    <select id="param-inversion" class="select-control">
+                        <option value="normal">Normal (idéntico)</option>
+                        <option value="mirror-h">Espejo horizontal</option>
+                        <option value="mirror-v">Espejo vertical</option>
+                        <option value="mirror-both">Espejo H+V (180°)</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. MOVIMIENTO -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">3</span> Movimiento <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">El motor que activa, deforma y anima los parámetros en tiempo real.</p>
+
+                <div class="slider-control">
+                    <label>Modo / Motor de animación:</label>
+                    <select id="param-animation-mode" class="select-control">
+                        <option value="static">Fijo / Manual</option>
+                        <option value="random">Aleatorio estático (Caos)</option>
+                        <option value="wave" selected>Onda senoidal (Respiración)</option>
+                        <option value="interference">Ondas cruzadas (Interferencia)</option>
+                        <option value="noise">Ruido natural (Orgánico vivo)</option>
+                        <option value="cursor">Efecto magnético (Cursor)</option>
+                    </select>
+                </div>
+                <div class="slider-control">
+                    <label>Velocidad / Frecuencia: <span id="val-speed">2.0</span></label>
+                    <input type="range" id="param-speed" min="0.1" max="5" step="0.1" value="2.0">
+                </div>
+                <div class="slider-control">
+                    <label>Tamaño mínimo: <span id="val-scale-min">0.2</span></label>
+                    <input type="range" id="param-scale-min" min="0" max="1" step="0.05" value="0.2">
+                </div>
+                <div class="slider-control">
+                    <label>Tamaño máximo: <span id="val-scale-max">2.5</span></label>
+                    <input type="range" id="param-scale-max" min="0.5" max="3.0" step="0.1" value="2.5">
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. MÚSICA -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">4</span> Música <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Análisis de audio interactivo para modular las variables del sistema.</p>
+
+                <div class="slider-control">
+                    <label>Pistas de prueba:</label>
+                    <div class="preset-grid" id="audio-preset-grid">
+                        <div class="preset-item" data-track="track_01_ritmo.mp3">🎵 Ritmo</div>
+                        <div class="preset-item" data-track="track_02_ambiente.mp3">🌊 Ambiente</div>
+                    </div>
+                </div>
+
+                <div class="playback-controls" id="playback-controls">
+                    <button id="btn-play" class="btn-secondary" disabled>▶ Play</button>
+                    <button id="btn-pause" class="btn-secondary" disabled>⏸ Pausa</button>
+                    <button id="btn-stop" class="btn-secondary" disabled>⏹ Stop</button>
+                </div>
+
+                <div class="separator">o subí tu propio audio:</div>
+                <label for="audio-file" class="btn-upload">Cargar pista de audio</label>
+                <input type="file" id="audio-file" accept=".mp3,.wav,.ogg,.m4a" style="display:none;">
+                <div id="audio-status" class="file-status">Sin archivo seleccionado</div>
+
+                <div class="slider-control">
+                    <label>Mapeo de frecuencia:</label>
+                    <select id="param-frequency-band" class="select-control">
+                        <option value="full">Espectro completo (Promedio)</option>
+                        <option value="bass">Grave / Sub-Bass (20–250Hz)</option>
+                        <option value="mid">Medios / Melodías (250–4kHz)</option>
+                        <option value="treble">Agudos / Platillos (4–20kHz)</option>
+                    </select>
+                </div>
+                <div class="slider-control">
+                    <label>Sensibilidad de respuesta: <span id="val-audio-intensity">1.5</span></label>
+                    <input type="range" id="param-audio-intensity" min="0" max="3" step="0.1" value="1.5">
+                </div>
+                <div class="slider-control">
+                    <label>Suavizado (smoothing): <span id="val-audio-smoothing">0.5</span></label>
+                    <input type="range" id="param-audio-smoothing" min="0.1" max="1.0" step="0.05" value="0.5">
+                </div>
+                <div class="checkbox-control">
+                    <label style="margin-bottom:4px;font-weight:600;">Destino de modulación:</label>
+                    <label><input type="checkbox" id="mod-target-scale" checked> Tamaño</label>
+                    <label><input type="checkbox" id="mod-target-stretch-x" checked> Estiramiento X</label>
+                    <label><input type="checkbox" id="mod-target-stretch-y" checked> Estiramiento Y</label>
+                    <label><input type="checkbox" id="mod-target-speed"> Velocidad</label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Export -->
+        <section class="control-group output-actions">
+            <h3 class="accordion-toggle">Exportar <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <div class="export-btns">
+                    <button id="btn-export-png" class="btn-primary">Exportar PNG</button>
+                    <button id="btn-export-mp4" class="btn-secondary">Exportar MP4</button>
+                </div>
+                <div id="export-status" class="file-status"></div>
+            </div>
+        </section>
+    </aside>
+
+    <script src="js/audio.js?v=20240601"></script>
+    <script src="js/engine.js?v=20240601"></script>
+    <script src="js/controls.js?v=20240601"></script>
+    <script src="js/app.js?v=20240601"></script>
+</body>
+</html>
