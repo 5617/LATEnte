@@ -1061,39 +1061,14 @@ export const Controls = {
             // Crear tarjeta de preset dinámico en la grilla
             this._addPresetCard(name, snapshot);
 
-            // Guardar en disco via API
-            fetch('/api/presets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(snapshot)
-            })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log(`💾 Preset guardado en disco: ${data.fileName}`);
-                        if (statusDiv) {
-                            statusDiv.textContent = `✅ «${name}» guardado en presets/${data.fileName}`;
-                            setTimeout(() => { statusDiv.textContent = ''; }, 3000);
-                        }
-                    } else {
-                        console.warn('Error del servidor al guardar preset:', data.error);
-                        if (statusDiv) {
-                            statusDiv.textContent = `⚠️ Error en servidor: ${data.error}`;
-                            setTimeout(() => { statusDiv.textContent = ''; }, 4000);
-                        }
-                    }
-                })
-                .catch(err => {
-                    console.warn('No se pudo conectar al servidor para guardar preset:', err.message);
-                    // Fallback: mostrar mensaje local
-                    if (statusDiv) {
-                        statusDiv.textContent = `⚠️ «${name}» guardado solo localmente (servidor no disponible).`;
-                        setTimeout(() => { statusDiv.textContent = ''; }, 4000);
-                    }
-                });
+            // Feedback instantáneo (solo LocalStorage — 100% frontend)
+            if (statusDiv) {
+                statusDiv.textContent = `✅ «${name}» guardado en el panel.`;
+                setTimeout(() => { statusDiv.textContent = ''; }, 3000);
+            }
 
             if (nameInput) nameInput.value = '';
-            console.log(`💾 Proyecto guardado: ${name}`);
+            console.log(`💾 Preset guardado en localStorage: ${name}`);
         });
 
         // ── EXPORTAR JSON ──
