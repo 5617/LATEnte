@@ -1,0 +1,174 @@
+{
+  "name": "Numeritos",
+  "timestamp": "2026-06-08T21:48:05.647Z",
+  "version": 1,
+  "video": {
+    "source": "gallery",
+    "galleryIndex": 1,
+    "uploadFile": null,
+    "_objectUrl": null
+  },
+  "systemPreset": "matrix",
+  "modoDistribucion": "aleatoria",
+  "geometriaTipo": "circulo",
+  "inputs": {
+    "brillo": {
+      "sensibilidad": 0.5
+    },
+    "movimiento": {
+      "sensibilidad": 0.5
+    },
+    "color": {
+      "sensibilidad": 0.5
+    }
+  },
+  "formaActiva": "numeros",
+  "formas": {
+    "numeros": {
+      "parametros": {
+        "escala": {
+          "fuente": "movimiento",
+          "intensidad": 0.75
+        },
+        "color": {
+          "hex": "#ffffff",
+          "fuente": "color",
+          "intensidad": 0.7
+        },
+        "espaciado": {
+          "x": 0.05,
+          "y": 0.7,
+          "fuente": "movimiento",
+          "intensidad": 0.3
+        },
+        "opacidad": {
+          "intensidad": 0.8,
+          "fuente": "none"
+        },
+        "velocidad": {
+          "fuente": "movimiento",
+          "intensidad": 0.5
+        }
+      }
+    },
+    "letras": {
+      "parametros": {
+        "escala": {
+          "fuente": "brillo",
+          "intensidad": 0.5
+        },
+        "color": {
+          "hex": "#ffc896",
+          "fuente": "brillo",
+          "intensidad": 0.6
+        },
+        "espaciado": {
+          "x": 0.3,
+          "y": 0.5,
+          "fuente": "brillo",
+          "intensidad": 0.3
+        },
+        "opacidad": {
+          "intensidad": 0.9,
+          "fuente": "none"
+        },
+        "velocidad": {
+          "fuente": "brillo",
+          "intensidad": 0.6
+        }
+      }
+    },
+    "geometrias": {
+      "parametros": {
+        "escala": {
+          "fuente": "movimiento",
+          "intensidad": 0.6
+        },
+        "color": {
+          "hex": "#64b4ff",
+          "fuente": "movimiento",
+          "intensidad": 0.7
+        },
+        "espaciado": {
+          "x": 0.3,
+          "y": 0.3,
+          "fuente": "movimiento",
+          "intensidad": 0.4
+        },
+        "opacidad": {
+          "intensidad": 1,
+          "fuente": "none"
+        },
+        "velocidad": {
+          "fuente": "movimiento",
+          "intensidad": 0.4
+        }
+      }
+    },
+    "constelaciones": {
+      "parametros": {
+        "escala": {
+          "fuente": "brillo",
+          "intensidad": 0.4
+        },
+        "color": {
+          "hex": "#c864ff",
+          "fuente": "color",
+          "intensidad": 0.6
+        },
+        "espaciado": {
+          "x": 0.7,
+          "y": 0.5,
+          "fuente": "brillo",
+          "intensidad": 0.5
+        },
+        "opacidad": {
+          "intensidad": 0.7,
+          "fuente": "none"
+        },
+        "velocidad": {
+          "fuente": "brillo",
+          "intensidad": 0.5
+        }
+      }
+    }
+  },
+  "paramsCompartidos": {
+    "escala": {
+      "intensidad": 0.75
+    },
+    "color": {
+      "hex": "#ffffff"
+    },
+    "espaciado": {
+      "x": 0.05,
+      "y": 0.7
+    },
+    "opacidad": {
+      "intensidad": 0.8
+    }
+  },
+  "engineSettings": {
+    "pixelColor": "#ffffff",
+    "baseScale": 2,
+    "stretchX": 1,
+    "stretchY": 1,
+    "densityX": 12,
+    "densityY": 12,
+    "offsetX": 0.3,
+    "offsetY": 0,
+    "inversion": "normal",
+    "animationMode": "wave",
+    "speed": 2,
+    "scaleMin": 0.2,
+    "scaleMax": 2.5,
+    "bgColor": "#0a0a0a",
+    "bgMode": "video",
+    "gradColors": [
+      "#222222",
+      "#555555",
+      "#888888",
+      "#cccccc"
+    ]
+  }
+}

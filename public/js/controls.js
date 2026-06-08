@@ -902,10 +902,6 @@ export const Controls = {
             }
             btn.title = isOpen ? 'Mostrar panel' : 'Ocultar panel';
 
-            if (viewer) {
-                viewer.classList.toggle('panel-hidden', isOpen);
-            }
-
             // Disparar resize al terminar la animación para que el canvas se reajuste
             setTimeout(() => {
                 window.dispatchEvent(new Event('resize'));
@@ -999,6 +995,41 @@ export const Controls = {
     //  PASO 4: GUARDAR
     // ──────────────────────────────────────────────
 
+    // ── Construye el snapshot del estado actual (reusable) ──
+    _buildSnapshot(name) {
+        return {
+            name: name,
+            timestamp: new Date().toISOString(),
+            version: 1,
+            video: { ...AppState.video },
+            systemPreset: AppState.systemPreset,
+            modoDistribucion: AppState.modoDistribucion,
+            geometriaTipo: AppState.geometriaTipo,
+            inputs: JSON.parse(JSON.stringify(AppState.inputs)),
+            formaActiva: AppState.formaActiva,
+            formas: JSON.parse(JSON.stringify(AppState.formas)),
+            paramsCompartidos: JSON.parse(JSON.stringify(AppState.paramsCompartidos)),
+            engineSettings: {
+                pixelColor: Engine.settings.pixelColor,
+                baseScale: Engine.settings.baseScale,
+                stretchX: Engine.settings.stretchX,
+                stretchY: Engine.settings.stretchY,
+                densityX: Engine.settings.densityX,
+                densityY: Engine.settings.densityY,
+                offsetX: Engine.settings.offsetX,
+                offsetY: Engine.settings.offsetY,
+                inversion: Engine.settings.inversion,
+                animationMode: Engine.settings.animationMode,
+                speed: Engine.settings.speed,
+                scaleMin: Engine.settings.scaleMin,
+                scaleMax: Engine.settings.scaleMax,
+                bgColor: Engine.settings.bgColor,
+                bgMode: Engine.settings.bgMode,
+                gradColors: [...(Engine.settings.gradColors || [])]
+            }
+        };
+    },
+
     setupSave() {
         const saveBtn = document.getElementById('btn-save-config');
         const nameInput = document.getElementById('save-project-name');
@@ -1009,38 +1040,12 @@ export const Controls = {
         saveBtn.addEventListener('click', () => {
             const name = nameInput ? nameInput.value.trim() : '';
             if (!name) {
-                if (statusDiv) statusDiv.textContent = '⚠️ Escribe un nombre para el proyecto.';
+                if (statusDiv) statusDiv.textContent = '⚠️ Escribe un nombre para el preset.';
                 return;
             }
 
             // Tomar snapshot del estado actual
-            const snapshot = {
-                name: name,
-                timestamp: new Date().toISOString(),
-                video: { ...AppState.video },
-                systemPreset: AppState.systemPreset,
-                inputs: JSON.parse(JSON.stringify(AppState.inputs)),
-                formaActiva: AppState.formaActiva,
-                formas: JSON.parse(JSON.stringify(AppState.formas)),
-                engineSettings: {
-                    pixelColor: Engine.settings.pixelColor,
-                    baseScale: Engine.settings.baseScale,
-                    stretchX: Engine.settings.stretchX,
-                    stretchY: Engine.settings.stretchY,
-                    densityX: Engine.settings.densityX,
-                    densityY: Engine.settings.densityY,
-                    offsetX: Engine.settings.offsetX,
-                    offsetY: Engine.settings.offsetY,
-                    inversion: Engine.settings.inversion,
-                    animationMode: Engine.settings.animationMode,
-                    speed: Engine.settings.speed,
-                    scaleMin: Engine.settings.scaleMin,
-                    scaleMax: Engine.settings.scaleMax,
-                    bgColor: Engine.settings.bgColor,
-                    bgMode: Engine.settings.bgMode,
-                    gradColors: [...(Engine.settings.gradColors || [])]
-                }
-            };
+            const snapshot = this._buildSnapshot(name);
 
             AppState.savedProjects.push(snapshot);
 
@@ -1056,14 +1061,128 @@ export const Controls = {
             // Crear tarjeta de preset dinámico en la grilla
             this._addPresetCard(name, snapshot);
 
-            if (statusDiv) {
-                statusDiv.textContent = `✅ «${name}» guardado correctamente.`;
-                setTimeout(() => { statusDiv.textContent = ''; }, 3000);
-            }
+            // Guardar en disco via API
+            fetch('/api/presets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(snapshot)
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log(`💾 Preset guardado en disco: ${data.fileName}`);
+                        if (statusDiv) {
+                            statusDiv.textContent = `✅ «${name}» guardado en presets/${data.fileName}`;
+                            setTimeout(() => { statusDiv.textContent = ''; }, 3000);
+                        }
+                    } else {
+                        console.warn('Error del servidor al guardar preset:', data.error);
+                        if (statusDiv) {
+                            statusDiv.textContent = `⚠️ Error en servidor: ${data.error}`;
+                            setTimeout(() => { statusDiv.textContent = ''; }, 4000);
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.warn('No se pudo conectar al servidor para guardar preset:', err.message);
+                    // Fallback: mostrar mensaje local
+                    if (statusDiv) {
+                        statusDiv.textContent = `⚠️ «${name}» guardado solo localmente (servidor no disponible).`;
+                        setTimeout(() => { statusDiv.textContent = ''; }, 4000);
+                    }
+                });
 
             if (nameInput) nameInput.value = '';
             console.log(`💾 Proyecto guardado: ${name}`);
         });
+
+        // ── EXPORTAR JSON ──
+        const exportBtn = document.getElementById('btn-export-json');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', () => {
+                const name = nameInput ? nameInput.value.trim() : 'latente-preset';
+                const snapshot = this._buildSnapshot(name || 'latente-preset');
+
+                const jsonStr = JSON.stringify(snapshot, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                const safeName = (name || 'latente-preset').replace(/[^a-zA-Z0-9_-]/g, '_');
+                link.download = `${safeName}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                if (statusDiv) {
+                    statusDiv.textContent = `✅ Exportado: ${safeName}.json`;
+                    setTimeout(() => { statusDiv.textContent = ''; }, 3000);
+                }
+                console.log(`📦 Preset exportado: ${safeName}.json`);
+            });
+        }
+
+        // ── IMPORTAR JSON ──
+        const importInput = document.getElementById('import-json-input');
+        const importBtn = document.getElementById('btn-import-json');
+        const importStatus = document.getElementById('import-status');
+
+        if (importBtn && importInput) {
+            importBtn.addEventListener('click', () => {
+                importInput.click();
+            });
+
+            importInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+
+                        // Validar que sea un preset válido
+                        if (!data.formaActiva && !data.engineSettings) {
+                            throw new Error('El archivo no contiene un preset válido de LATEnte.');
+                        }
+
+                        const presetName = data.name || file.name.replace(/\.json$/i, '');
+                        data.name = presetName;
+                        if (!data.timestamp) data.timestamp = new Date().toISOString();
+
+                        // Agregar a la lista y guardar en localStorage
+                        AppState.savedProjects.push(data);
+                        try {
+                            const existing = JSON.parse(localStorage.getItem('formas-vivas-projects') || '[]');
+                            existing.push(data);
+                            localStorage.setItem('formas-vivas-projects', JSON.stringify(existing));
+                        } catch (e) {
+                            console.warn('No se pudo guardar en localStorage:', e.message);
+                        }
+
+                        // Crear tarjeta en la grilla
+                        this._addPresetCard(presetName, data);
+
+                        if (importStatus) {
+                            importStatus.textContent = `✅ «${presetName}» importado.`;
+                            setTimeout(() => { importStatus.textContent = ''; }, 4000);
+                        }
+                        console.log(`📂 Preset importado: ${presetName}`);
+                    } catch (err) {
+                        if (importStatus) {
+                            importStatus.textContent = `❌ Error: ${err.message}`;
+                            setTimeout(() => { importStatus.textContent = ''; }, 4000);
+                        }
+                        console.warn('Error al importar JSON:', err);
+                    }
+                };
+                reader.readAsText(file);
+
+                // Resetear el input para permitir re-importar el mismo archivo
+                importInput.value = '';
+            });
+        }
     },
 
     // ── Crear tarjeta de preset dinámico ──
@@ -1125,7 +1244,37 @@ export const Controls = {
                     });
                 }
             }
-            // Restaurar parámetros compartidos y sincronizar UI
+
+            // Restaurar modo de distribución
+            if (snapshot.modoDistribucion) {
+                AppState.modoDistribucion = snapshot.modoDistribucion;
+                const distBtn = document.getElementById('btn-distribucion');
+                if (distBtn) {
+                    distBtn.textContent = snapshot.modoDistribucion === 'aleatoria' ? 'Caótica' : 'Estructurada';
+                    distBtn.classList.toggle('active', snapshot.modoDistribucion === 'aleatoria');
+                }
+            }
+
+            // Restaurar tipo de geometría
+            if (snapshot.geometriaTipo) {
+                AppState.geometriaTipo = snapshot.geometriaTipo;
+                const geoSelect = document.getElementById('geometria-tipo-select');
+                if (geoSelect) geoSelect.value = snapshot.geometriaTipo;
+            }
+
+            // Restaurar parámetros compartidos
+            if (snapshot.paramsCompartidos) {
+                const sc = snapshot.paramsCompartidos;
+                if (sc.escala) AppState.paramsCompartidos.escala.intensidad = sc.escala.intensidad;
+                if (sc.color) AppState.paramsCompartidos.color.hex = sc.color.hex;
+                if (sc.espaciado) {
+                    AppState.paramsCompartidos.espaciado.x = sc.espaciado.x;
+                    AppState.paramsCompartidos.espaciado.y = sc.espaciado.y;
+                }
+                if (sc.opacidad) AppState.paramsCompartidos.opacidad.intensidad = sc.opacidad.intensidad;
+            }
+
+            // Propagar a la forma activa, sincronizar UI y actualizar visibilidad de geometría
             this._propagarParamsAForma();
             this._syncParamUI();
             if (this._toggleGeometriaVis) this._toggleGeometriaVis();

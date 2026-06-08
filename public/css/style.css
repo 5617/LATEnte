@@ -1116,6 +1116,41 @@ input[type="color"]::-webkit-color-swatch {
     margin-top: 4px;
 }
 
+.json-btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.json-btn-half {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 7px 6px;
+    font-family: inherit;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--text-main);
+    background: rgba(255,255,255,0.7);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+}
+
+.json-btn-half:hover {
+    border-color: var(--text-main);
+    background: rgba(255,255,255,0.9);
+}
+
+.json-btn-half:active {
+    transform: translateY(0);
+}
+
 /* ─── Panel Inferior: Línea de Tiempo (slide-up panel) ─── */
 #timeline-container {
     position: fixed;
@@ -1664,6 +1699,12 @@ input[type="color"]::-webkit-color-swatch {
 
 .viewer-container.timeline-open {
     bottom: 140px;
+}
+
+/* ─── Viewer expandido cuando el panel lateral está oculto ─── */
+.viewer-container.panel-hidden {
+    /* El viewer ya ocupa position:fixed; inset:0 por defecto,
+       por lo que no necesita cambios de layout al ocultar el panel. */
 }
 
 /* ─── Splash Screen ─── */

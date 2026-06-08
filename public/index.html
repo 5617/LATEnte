@@ -203,16 +203,22 @@
 
                 <div class="color-separator-thin"></div>
 
-                <h4 class="subsection-label">GUARDAR</h4>
-                <p class="control-descrip">Guarda tu configuración actual como preset personalizado.</p>
-
+                <h4 class="subsection-label">GUARDAR / EXPORTAR</h4>
                 <div class="save-field">
-                    <label for="save-project-name" class="param-label">NOMBRE DEL PROYECTO</label>
+                    <label for="save-project-name" class="param-label">NOMBRE DEL PRESET</label>
                     <input type="text" id="save-project-name" class="text-input" placeholder="Ej: Bosque Neural" maxlength="48">
                 </div>
 
-                <button id="btn-save-config" class="btn-primary save-btn">Guardar Configuración</button>
-                <div id="save-status" class="file-status" style="margin-top:6px;"></div>
+                <button id="btn-save-config" class="btn-primary save-btn">Guardar en Panel</button>
+
+                <div class="json-btn-row">
+                    <input type="file" id="import-json-input" accept=".json" style="display:none;">
+                    <button id="btn-export-json" class="btn-secondary json-btn-half">⬇ Exportar</button>
+                    <button id="btn-import-json" class="btn-secondary json-btn-half">⬆ Importar</button>
+                </div>
+
+                <div id="save-status" class="file-status" style="margin-top:4px;"></div>
+                <div id="import-status" class="file-status" style="margin-top:2px;"></div>
             </div>
         </section>
 

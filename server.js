@@ -1,17 +1,18 @@
+// javascript
 // server.js
 // Servidor estático para LATEnte — Sirve los archivos del frontend desde /public
-
+ 
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
+ 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
+ 
 const PORT = 8080;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-
+ 
 // Mapeo de extensiones a Content-Type
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
@@ -33,30 +34,67 @@ const MIME_TYPES = {
     '.mp3':  'audio/mpeg',
     '.wav':  'audio/wav',
 };
-
+ 
+const PRESETS_DIR = path.join(__dirname, 'presets');
+ 
+// Asegurar que la carpeta presets/ existe (síncrono solo al iniciar)
+try {
+    fs.mkdirSync(PRESETS_DIR, { recursive: true });
+} catch (e) {
+    console.warn('No se pudo crear la carpeta presets/:', e.message);
+}
+ 
 const server = http.createServer((req, res) => {
-    // Sanitizar la URL: evitar path traversal
-    let urlPath = req.url.split('?')[0]; // quitar query params
-
-    // Si la ruta termina en /, servir index.html
+    // ── API: Guardar preset en disco ──
+    if (req.method === 'POST' && req.url === '/api/presets') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const preset = JSON.parse(body);
+                const name = preset.name || 'sin-nombre';
+                const safeName = name.replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 48);
+                const timestamp = Date.now();
+                const fileName = `${safeName}_${timestamp}.json`;
+                const filePath = path.join(PRESETS_DIR, fileName);
+ 
+                fs.writeFile(filePath, JSON.stringify(preset, null, 2), 'utf-8', (err) => {
+                    if (err) {
+                        console.error('Error al guardar preset:', err);
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: false, error: err.message }));
+                        return;
+                    }
+                    console.log(`💾 Preset guardado en disco: ${fileName}`);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, fileName }));
+                });
+            } catch (err) {
+                console.error('Error al parsear preset:', err);
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: 'JSON inválido' }));
+            }
+        });
+        return;
+    }
+ 
+    // ── Servir archivos estáticos ──
+    let urlPath = req.url.split('?')[0];
+ 
     if (urlPath === '/' || urlPath === '') {
         urlPath = '/index.html';
     }
-
-    // Construir ruta absoluta dentro de public/
+ 
     const filePath = path.join(PUBLIC_DIR, urlPath);
-
-    // Verificar que la ruta está dentro de public/ (seguridad)
+ 
     if (!filePath.startsWith(PUBLIC_DIR)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' });
         res.end('Forbidden');
         return;
     }
-
-    // Obtener extensión
+ 
     const ext = path.extname(filePath).toLowerCase();
-
-    // Leer y servir el archivo
+ 
     fs.readFile(filePath, (err, data) => {
         if (err) {
             if (err.code === 'ENOENT') {
@@ -68,13 +106,13 @@ const server = http.createServer((req, res) => {
             }
             return;
         }
-
+ 
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
         res.writeHead(200, { 'Content-Type': contentType });
         res.end(data);
     });
 });
-
+ 
 server.listen(PORT, '0.0.0.0', () => {
     console.log('');
     console.log('  ╔══════════════════════════════════╗');

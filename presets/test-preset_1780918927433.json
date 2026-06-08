@@ -1,0 +1,7 @@
+{
+  "name": "test-preset",
+  "engineSettings": {
+    "speed": 2
+  },
+  "formaActiva": "numeros"
+}
