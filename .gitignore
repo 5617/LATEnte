@@ -1,0 +1,38 @@
+# ─── Sistema Operativo ───
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ─── Node.js ───
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+
+# ─── Build / Distribución ───
+dist/
+build/
+out/
+
+# ─── Entorno ───
+.env
+.env.local
+.env.*.local
+
+# ─── IDE / Editores ───
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ─── Logs ───
+*.log
+
+# ─── Misc ───
+*.bak
+*.orig

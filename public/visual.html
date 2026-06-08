@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LATEnte — Visual</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        body {
+            background: #000;
+            overflow: hidden;
+            margin: 0;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #visual-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            z-index: 1;
+        }
+
+        /* Overlay minimal para navegación */
+        .visual-overlay {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 20px;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 40px;
+            color: rgba(255,255,255,0.6);
+            font-family: 'Roboto Slab', serif;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            user-select: none;
+        }
+
+        .visual-overlay:hover {
+            opacity: 1;
+        }
+
+        .visual-overlay span {
+            opacity: 0.5;
+        }
+
+        .visual-overlay a {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .visual-overlay a:hover {
+            color: #e1ff00;
+        }
+
+        .visual-brand {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 0.85rem;
+            letter-spacing: -0.02em;
+            color: #e1ff00;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="visual-canvas"></canvas>
+
+    <div class="visual-overlay">
+        <span class="visual-brand">LATEnte</span>
+        <span>·</span>
+        <a href="/">Sintetizador</a>
+    </div>
+
+    <script type="module">
+        import { AppState } from './js/state.js';
+        import { Engine } from './js/engine.js';
+
+        // Inicializar solo el motor visual (sin controles ni galería)
+        const canvas = document.getElementById('visual-canvas');
+
+        const defaultSettings = {
+            pixelColor: '#ffffff',
+            baseScale: 2.0,
+            stretchX: 1.0,
+            stretchY: 1.0,
+            swapAxes: false,
+            densityX: 12,
+            densityY: 12,
+            offsetX: 0.3,
+            offsetY: 0,
+            inversion: 'normal',
+            animationMode: 'wave',
+            speed: 2.0,
+            scaleMin: 0.2,
+            scaleMax: 2.5,
+            bgColor: '#0a0a0a',
+            bgMode: 'preset',
+            moduleColorMode: 'solid',
+            gradColors: ['#222222', '#555555', '#888888', '#cccccc'],
+        };
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth * devicePixelRatio;
+            canvas.height = window.innerHeight * devicePixelRatio;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(devicePixelRatio, devicePixelRatio);
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        Engine.init(canvas, defaultSettings);
+
+        // Bucle de animación
+        function loop() {
+            Engine.update();
+            requestAnimationFrame(loop);
+        }
+        loop();
+
+        // Mouse tracking
+        window.addEventListener('mousemove', (e) => {
+            Engine.mouse.x = e.clientX;
+            Engine.mouse.y = e.clientY;
+        });
+
+        // Mostrar overlay tras unos segundos
+        setTimeout(() => {
+            document.querySelector('.visual-overlay').style.opacity = '1';
+        }, 3000);
+    </script>
+</body>
+</html>

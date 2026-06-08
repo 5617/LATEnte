@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LATEnte — Sintetizador visual en vivo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- ─── SPLASH SCREEN ─── -->
+    <div id="welcome-screen">
+        <div class="welcome-content">
+            <h1 class="welcome-title">LATEnte</h1>
+            <p class="welcome-subtitle">Debajo de cada imagen, algo late.</p>
+            <p class="welcome-description">Explorá las estructuras visuales ocultas en tus videos y convertílas en sistemas reactivos únicos.</p>
+            <button id="btn-ingresar" class="welcome-btn"><span>Ingresar al Sintetizador</span></button>
+        </div>
+    </div>
+
+    <!-- Canvas full-screen de fondo -->
+    <main class="viewer-container" id="viewer-container">
+        <video id="bg-video" muted loop playsinline style="display:none;"></video>
+<canvas id="pattern-canvas"></canvas>
+    </main>
+
+    <!-- Panel de control flotante (lateral derecho) -->
+    <aside class="control-panel">
+        <header>
+            <h1>LATEnte</h1>
+            <p class="subtitle">Debajo de cada imagen, algo late.</p>
+        </header>
+
+        <!-- ─── PASO 1: VIDEO ─── -->
+        <section class="control-group">
+            <h3 class="accordion-toggle open"><span class="section-num">1</span> Video <span class="accordion-arrow open">▸</span></h3>
+            <div class="section-content open">
+                <p class="control-descrip">Elige una fuente de video como input visual.</p>
+
+                <div class="video-option-group">
+                    <div class="video-gallery-scroll" id="video-gallery-scroll">
+                        <div class="video-gallery-grid" id="video-gallery-grid">
+                            <div class="video-thumb" data-video="flor" draggable="true" data-clip-name="Flor" data-clip-src="/assets/videos/video_flor.mp4"><span class="thumb-label">Flor</span></div>
+                            <div class="video-thumb" data-video="flor-1" draggable="true" data-clip-name="Flor 1" data-clip-src="/assets/videos/video_flor_1.mp4"><span class="thumb-label">Flor 1</span></div>
+                            <div class="video-thumb" data-video="flor-2" draggable="true" data-clip-name="Flor 2" data-clip-src="/assets/videos/video_flor_2.mp4"><span class="thumb-label">Flor 2</span></div>
+                            <div class="video-thumb" data-video="flor-3" draggable="true" data-clip-name="Flor 3" data-clip-src="/assets/videos/video_flor_3.mp4"><span class="thumb-label">Flor 3</span></div>
+                            <div class="video-thumb" data-video="flor-amarilla" draggable="true" data-clip-name="Flor Amarilla" data-clip-src="/assets/videos/video_flor_amarilla.mp4"><span class="thumb-label">Flor Amarilla</span></div>
+                            <div class="video-thumb" data-video="fuego" draggable="true" data-clip-name="Fuego" data-clip-src="/assets/videos/video_fuego.mp4"><span class="thumb-label">Fuego</span></div>
+                            <div class="video-thumb" data-video="insecto" draggable="true" data-clip-name="Insecto" data-clip-src="/assets/videos/video_insecto.mp4"><span class="thumb-label">Insecto</span></div>
+                            <div class="video-thumb" data-video="insecto-2" draggable="true" data-clip-name="Insecto 2" data-clip-src="/assets/videos/video_insecto_2.mp4"><span class="thumb-label">Insecto 2</span></div>
+                            <div class="video-thumb" data-video="mariposa" draggable="true" data-clip-name="Mariposa" data-clip-src="/assets/videos/video_mariposa.mp4"><span class="thumb-label">Mariposa</span></div>
+                            <div class="video-thumb" data-video="pez" draggable="true" data-clip-name="Pez" data-clip-src="/assets/videos/video_pez.mp4"><span class="thumb-label">Pez</span></div>
+                            <div class="video-thumb" data-video="rio" draggable="true" data-clip-name="Río" data-clip-src="/assets/videos/video_rio.mp4"><span class="thumb-label">Río</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <div class="video-option-group">
+                    <label for="upload-video-file" class="btn-upload">Subir MP4</label>
+                    <input type="file" id="upload-video-file" accept="video/mp4" style="display:none;">
+                    <span id="video-upload-status" class="file-status">Ningún video seleccionado</span>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <!-- EDICIÓN dentro de VIDEO -->
+                <h4 class="subsection-label">EDICIÓN</h4>
+
+                <div class="slider-control">
+                    <label>Brillo <span id="val-input-brillo">0.50</span></label>
+                    <input type="range" id="slider-input-brillo" min="0" max="1" step="0.05" value="0.5">
+                </div>
+                <div class="slider-control">
+                    <label>Contraste <span id="val-input-contraste">0.50</span></label>
+                    <input type="range" id="slider-input-contraste" min="0" max="1" step="0.05" value="0.5">
+                </div>
+                <div class="slider-control">
+                    <label>Color <span id="val-input-color">0.50</span></label>
+                    <input type="range" id="slider-input-color" min="0" max="1" step="0.05" value="0.5">
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── PASO 2: SINTETIZADOR VISUAL ─── -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">2</span> Sintetizador Visual <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Sistemas visuales generados sobre el video.</p>
+
+                <!-- FORMAS (radio buttons, solo una seleccionable) -->
+                <h4 class="subsection-label">FORMAS</h4>
+
+                <div class="forma-radio-group" id="forma-selector">
+                    <label class="forma-radio active">
+                        <input type="radio" name="forma" value="numeros" checked>
+                        <span>Números</span>
+                    </label>
+                    <label class="forma-radio">
+                        <input type="radio" name="forma" value="letras">
+                        <span>Letras</span>
+                    </label>
+                    <label class="forma-radio">
+                        <input type="radio" name="forma" value="constelaciones">
+                        <span>Constelaciones</span>
+                    </label>
+                    <label class="forma-radio">
+                        <input type="radio" name="forma" value="geometrias">
+                        <span>Geometrías</span>
+                    </label>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <!-- SUB-SELECTOR DE GEOMETRÍA (dropdown compacto, visible solo cuando forma=geometrias) -->
+                <div class="geometria-tipo-wrapper" id="geometria-tipo-wrapper">
+                    <div class="param-grid-row" style="border-bottom:none; margin-top:4px; padding:0;">
+                        <span class="param-grid-name" style="font-size:0.55rem;">Tipo</span>
+                        <select id="geometria-tipo-select" class="geometria-select">
+                            <option value="circulo">● Círculo</option>
+                            <option value="cuadrado">■ Cuadrado</option>
+                            <option value="triangulo">▲ Triángulo</option>
+                            <option value="cruz">✚ Cruz</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- PARÁMETROS (grilla compacta 3 columnas) -->
+                <h4 class="subsection-label">PARÁMETROS</h4>
+                <div class="param-grid" id="param-grid">
+
+                    <div class="param-grid-row">
+                        <span class="param-grid-name">Escala</span>
+                        <div class="param-grid-intensity">
+                            <input type="range" class="param-slider" data-param="escala" min="0" max="1" step="0.05" value="0.5">
+                            <span class="param-slider-val" id="val-intensity-escala">0.50</span>
+                        </div>
+                    </div>
+
+                    <div class="param-grid-row">
+                        <span class="param-grid-name">Color</span>
+                        <div class="param-grid-intensity">
+                            <input type="color" class="param-color" id="param-color-picker" value="#ffffff">
+                            <span class="param-slider-val" id="val-intensity-color">#ffffff</span>
+                        </div>
+                    </div>
+
+                    <div class="param-grid-row">
+                        <span class="param-grid-name">Esp. X</span>
+                        <div class="param-grid-intensity">
+                            <input type="range" class="param-slider" data-param="espaciado-x" min="0" max="1" step="0.05" value="0.5">
+                            <span class="param-slider-val" id="val-intensity-espaciado-x">0.50</span>
+                        </div>
+                    </div>
+
+                    <div class="param-grid-row">
+                        <span class="param-grid-name">Esp. Y</span>
+                        <div class="param-grid-intensity">
+                            <input type="range" class="param-slider" data-param="espaciado-y" min="0" max="1" step="0.05" value="0.5">
+                            <span class="param-slider-val" id="val-intensity-espaciado-y">0.50</span>
+                        </div>
+                    </div>
+
+                    <div class="param-grid-row">
+                        <span class="param-grid-name">Opacidad</span>
+                        <div class="param-grid-intensity">
+                            <input type="range" class="param-slider" data-param="opacidad" min="0" max="1" step="0.05" value="1.0">
+                            <span class="param-slider-val" id="val-intensity-opacidad">1.00</span>
+                        </div>
+                    </div>
+
+                    <!-- Toggle de Distribución (Estructurada / Caótica) -->
+                    <div class="param-grid-row" style="border-bottom:none; margin-top:2px;">
+                        <span class="param-grid-name" style="font-size:0.55rem;">Grilla</span>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <button id="btn-distribucion" class="distribucion-btn" title="Alternar entre grilla estructurada y dispersión aleatoria">Estructurada</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── PASO 3: PRESETS ─── -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">3</span> Presets <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Elige una configuración base como punto de partida.</p>
+
+                <div class="preset-system-grid" id="preset-system-grid">
+                    <div class="system-preset-item" data-preset="matrix">
+                        <span class="system-preset-name">Matrix</span>
+                    </div>
+                    <div class="system-preset-item" data-preset="data-rain">
+                        <span class="system-preset-name">Data Rain</span>
+                    </div>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <h4 class="subsection-label">GUARDAR</h4>
+                <p class="control-descrip">Guarda tu configuración actual como preset personalizado.</p>
+
+                <div class="save-field">
+                    <label for="save-project-name" class="param-label">NOMBRE DEL PROYECTO</label>
+                    <input type="text" id="save-project-name" class="text-input" placeholder="Ej: Bosque Neural" maxlength="48">
+                </div>
+
+                <button id="btn-save-config" class="btn-primary save-btn">Guardar Configuración</button>
+                <div id="save-status" class="file-status" style="margin-top:6px;"></div>
+            </div>
+        </section>
+
+        <!-- ─── PASO 5: EXPORTAR ─── -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">4</span> Exportar <span class="accordion-arrow">▸</span></h3>
+            <div class="section-content">
+                <p class="control-descrip">Elige el formato de salida para tu obra.</p>
+
+                <div class="export-format-grid">
+                    <button class="btn-export-format" id="btn-export-record" data-format="webm">
+                        <span class="export-format-name">● Exportar</span>
+                    </button>
+                </div>
+                <div id="export-status" class="file-status" style="margin-top:8px;"></div>
+            </div>
+        </section>
+    </aside>
+
+    <!-- ─── BOTÓN OCULTAR/MOSTRAR PANEL LATERAL ─── -->
+    <button class="panel-toggle panel-open" id="panel-toggle" title="Ocultar panel">
+        <svg class="toggle-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M9 3L5 7L9 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </button>
+
+    <!-- ─── PANEL INFERIOR: LÍNEA DE TIEMPO (se desliza hacia arriba/abajo) ─── -->
+    <div id="timeline-container" class="timeline-closed">
+        <div class="timeline-inner">
+            <div class="timeline-toolbar">
+                <button class="timeline-btn" id="timeline-btn-preview" title="Preview">▶ Preview</button>
+                <button class="timeline-btn" id="timeline-btn-stop" title="Stop" disabled>⏹ Stop</button>
+                <div class="timeline-divider"></div>
+                <span class="timeline-label">Línea de Tiempo</span>
+                <button class="timeline-btn-clear" id="timeline-btn-clear" title="Cerrar secuenciador">✕</button>
+            </div>
+            <div class="timeline-track" id="timeline-track">
+                <span class="timeline-drop-hint">Arrastra videos desde el panel para armar tu secuencia</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── BOTÓN DESLIZAR LÍNEA DE TIEMPO (siempre visible en el borde inferior) ─── -->
+    <button class="timeline-handle" id="timeline-handle" title="Abrir línea de tiempo">
+        <svg class="tl-handle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 8L6 4L10 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="tl-handle-text">Línea de tiempo</span>
+    </button>
+
+    <script type="module" src="/js/app.js"></script>
+</body>
+</html>
