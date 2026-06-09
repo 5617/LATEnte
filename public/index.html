@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -23,8 +24,9 @@
     </div>
 
     <!-- Canvas full-screen de fondo -->
-    <main class="viewer-container" id="viewer-container">
+    <main class="viewer-container timeline-open" id="viewer-container">
         <video id="bg-video" muted loop playsinline style="display:none;"></video>
+        <video id="bg-video-next" muted playsinline preload="auto" style="display:none;"></video>
 <canvas id="pattern-canvas"></canvas>
     </main>
 
@@ -37,7 +39,7 @@
 
         <!-- ─── PASO 1: VIDEO ─── -->
         <section class="control-group">
-            <h3 class="accordion-toggle open"><span class="section-num">1</span> Video <span class="accordion-arrow open">▸</span></h3>
+            <h3 class="accordion-toggle open">Video <span class="accordion-arrow open"></span></h3>
             <div class="section-content open">
                 <p class="control-descrip">Elige una fuente de video como input visual.</p>
 
@@ -46,25 +48,23 @@
                         <div class="video-gallery-grid" id="video-gallery-grid">
                             <div class="video-thumb" data-video="flor" draggable="true" data-clip-name="Flor" data-clip-src="/assets/videos/video_flor.mp4"><span class="thumb-label">Flor</span></div>
                             <div class="video-thumb" data-video="flor-1" draggable="true" data-clip-name="Flor 1" data-clip-src="/assets/videos/video_flor_1.mp4"><span class="thumb-label">Flor 1</span></div>
-                            <div class="video-thumb" data-video="flor-2" draggable="true" data-clip-name="Flor 2" data-clip-src="/assets/videos/video_flor_2.mp4"><span class="thumb-label">Flor 2</span></div>
-                            <div class="video-thumb" data-video="flor-3" draggable="true" data-clip-name="Flor 3" data-clip-src="/assets/videos/video_flor_3.mp4"><span class="thumb-label">Flor 3</span></div>
-                            <div class="video-thumb" data-video="flor-amarilla" draggable="true" data-clip-name="Flor Amarilla" data-clip-src="/assets/videos/video_flor_amarilla.mp4"><span class="thumb-label">Flor Amarilla</span></div>
+
                             <div class="video-thumb" data-video="fuego" draggable="true" data-clip-name="Fuego" data-clip-src="/assets/videos/video_fuego.mp4"><span class="thumb-label">Fuego</span></div>
-                            <div class="video-thumb" data-video="insecto" draggable="true" data-clip-name="Insecto" data-clip-src="/assets/videos/video_insecto.mp4"><span class="thumb-label">Insecto</span></div>
-                            <div class="video-thumb" data-video="insecto-2" draggable="true" data-clip-name="Insecto 2" data-clip-src="/assets/videos/video_insecto_2.mp4"><span class="thumb-label">Insecto 2</span></div>
                             <div class="video-thumb" data-video="mariposa" draggable="true" data-clip-name="Mariposa" data-clip-src="/assets/videos/video_mariposa.mp4"><span class="thumb-label">Mariposa</span></div>
                             <div class="video-thumb" data-video="pez" draggable="true" data-clip-name="Pez" data-clip-src="/assets/videos/video_pez.mp4"><span class="thumb-label">Pez</span></div>
-                            <div class="video-thumb" data-video="rio" draggable="true" data-clip-name="Río" data-clip-src="/assets/videos/video_rio.mp4"><span class="thumb-label">Río</span></div>
+                            <div class="video-thumb" data-video="medusas" draggable="true" data-clip-name="Medusas" data-clip-src="/assets/videos/video_medusas.mp4"><span class="thumb-label">Medusas</span></div>
                         </div>
                     </div>
                 </div>
 
                 <div class="color-separator-thin"></div>
 
-                <div class="video-option-group">
-                    <label for="upload-video-file" class="btn-upload">Subir MP4</label>
-                    <input type="file" id="upload-video-file" accept="video/mp4" style="display:none;">
-                    <span id="video-upload-status" class="file-status">Ningún video seleccionado</span>
+                <div class="video-option-group upload-compact">
+                    <div class="upload-row">
+                        <label for="upload-video-file" class="btn-upload">SUBIR VIDEO</label>
+                        <input type="file" id="upload-video-file" accept="video/mp4" style="display:none;">
+                        <span id="video-upload-status" class="file-status">Ningún video seleccionado</span>
+                    </div>
                 </div>
 
                 <div class="color-separator-thin"></div>
@@ -87,12 +87,68 @@
             </div>
         </section>
 
-        <!-- ─── PASO 2: SINTETIZADOR VISUAL ─── -->
+        <!-- ─── EFECTOS DE VIDEO ─── -->
         <section class="control-group">
-            <h3 class="accordion-toggle"><span class="section-num">2</span> Sintetizador Visual <span class="accordion-arrow">▸</span></h3>
+            <h3 class="accordion-toggle"><span class="section-num">✦</span> Efectos de Video <span class="accordion-arrow"></span></h3>
             <div class="section-content">
-                <p class="control-descrip">Sistemas visuales generados sobre el video.</p>
+                <p class="control-descrip">Procesamiento de imagen en tiempo real.</p>
 
+                <!-- CALEIDOSCOPIO -->
+                <div class="efecto-item">
+                    <label class="efecto-toggle">
+                        <input type="checkbox" id="efecto-caleidoscopio-check">
+                        <span class="efecto-toggle-label">Caleidoscopio</span>
+                    </label>
+                    <div class="efecto-slider-row">
+                        <span class="efecto-slider-label">Segmentos</span>
+                        <input type="range" id="efecto-caleidoscopio-segmentos" min="2" max="12" step="1" value="6" class="efecto-slider">
+                        <span class="efecto-val" id="val-caleidoscopio-segmentos">6</span>
+                    </div>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <!-- PIXELART -->
+                <div class="efecto-item">
+                    <label class="efecto-toggle">
+                        <input type="checkbox" id="efecto-pixelart-check">
+                        <span class="efecto-toggle-label">Pixelart</span>
+                    </label>
+                    <div class="efecto-slider-row">
+                        <span class="efecto-slider-label">Tamaño</span>
+                        <input type="range" id="efecto-pixelart-tamanio" min="1" max="6" step="1" value="2" class="efecto-slider">
+                        <span class="efecto-val" id="val-pixelart-tamanio">8px</span>
+                    </div>
+                </div>
+
+                <div class="color-separator-thin"></div>
+
+                <!-- NOISE -->
+                <div class="efecto-item">
+                    <label class="efecto-toggle">
+                        <input type="checkbox" id="efecto-noise-check">
+                        <span class="efecto-toggle-label">Ruido</span>
+                    </label>
+                    <div class="efecto-slider-row">
+                        <span class="efecto-slider-label">Intensidad</span>
+                        <input type="range" id="efecto-noise-intensidad" min="0" max="1" step="0.05" value="0.15" class="efecto-slider">
+                        <span class="efecto-val" id="val-noise-intensidad">0.15</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── PASO 2: TRAMAS VISUALES ─── -->
+        <section class="control-group">
+            <h3 class="accordion-toggle"><span class="section-num">✦</span> Tramas Visuales <span class="accordion-arrow"></span></h3>
+            <div class="section-content">
+                <div class="efecto-item" style="margin-top:0;">
+                    <label class="efecto-toggle">
+                        <input type="checkbox" id="tramas-activas-check">
+                        <span class="efecto-toggle-label">Activar tramas</span>
+                    </label>
+                </div>
+                <div class="color-separator-thin"></div>
                 <!-- FORMAS (radio buttons, solo una seleccionable) -->
                 <h4 class="subsection-label">FORMAS</h4>
 
@@ -188,7 +244,7 @@
 
         <!-- ─── PASO 3: PRESETS ─── -->
         <section class="control-group">
-            <h3 class="accordion-toggle"><span class="section-num">3</span> Presets <span class="accordion-arrow">▸</span></h3>
+            <h3 class="accordion-toggle">Presets <span class="accordion-arrow"></span></h3>
             <div class="section-content">
                 <p class="control-descrip">Elige una configuración base como punto de partida.</p>
 
@@ -224,13 +280,26 @@
 
         <!-- ─── PASO 5: EXPORTAR ─── -->
         <section class="control-group">
-            <h3 class="accordion-toggle"><span class="section-num">4</span> Exportar <span class="accordion-arrow">▸</span></h3>
+            <h3 class="accordion-toggle">Exportar <span class="accordion-arrow"></span></h3>
             <div class="section-content">
                 <p class="control-descrip">Elige el formato de salida para tu obra.</p>
 
-                <div class="export-format-grid">
-                    <button class="btn-export-format" id="btn-export-record" data-format="webm">
-                        <span class="export-format-name">● Exportar</span>
+                <div class="export-format-grid" id="export-format-grid">
+                    <button class="export-format-item" data-format="png" id="btn-export-png">
+                        <span class="export-format-name">PNG</span>
+                        <span class="export-format-desc">Captura en alta calidad</span>
+                    </button>
+                    <button class="export-format-item" data-format="jpg" id="btn-export-jpg">
+                        <span class="export-format-name">JPG</span>
+                        <span class="export-format-desc">Fondo negro</span>
+                    </button>
+                    <button class="export-format-item" data-format="mp4" id="btn-export-mp4">
+                        <span class="export-format-name">MP4</span>
+                        <span class="export-format-desc">Grabar secuencia</span>
+                    </button>
+                    <button class="export-format-item" data-format="gif" id="btn-export-gif">
+                        <span class="export-format-name">GIF</span>
+                        <span class="export-format-desc">Animación en bucle</span>
                     </button>
                 </div>
                 <div id="export-status" class="file-status" style="margin-top:8px;"></div>
@@ -245,14 +314,15 @@
         </svg>
     </button>
 
-    <!-- ─── PANEL INFERIOR: LÍNEA DE TIEMPO (se desliza hacia arriba/abajo) ─── -->
-    <div id="timeline-container" class="timeline-closed">
+    <!-- ─── PANEL INFERIOR: LÍNEA DE TIEMPO (abierta por defecto) ─── -->
+    <div id="timeline-container">
         <div class="timeline-inner">
             <div class="timeline-toolbar">
                 <button class="timeline-btn" id="timeline-btn-preview" title="Preview">▶ Preview</button>
                 <button class="timeline-btn" id="timeline-btn-stop" title="Stop" disabled>⏹ Stop</button>
                 <div class="timeline-divider"></div>
                 <span class="timeline-label">Línea de Tiempo</span>
+                <span class="timeline-total" id="timeline-total-label"></span>
                 <button class="timeline-btn-clear" id="timeline-btn-clear" title="Cerrar secuenciador">✕</button>
             </div>
             <div class="timeline-track" id="timeline-track">
@@ -261,8 +331,8 @@
         </div>
     </div>
 
-    <!-- ─── BOTÓN DESLIZAR LÍNEA DE TIEMPO (siempre visible en el borde inferior) ─── -->
-    <button class="timeline-handle" id="timeline-handle" title="Abrir línea de tiempo">
+    <!-- ─── BOTÓN DESLIZAR LÍNEA DE TIEMPO (oculto cuando la timeline está abierta) ─── -->
+    <button class="timeline-handle tl-hidden" id="timeline-handle" title="Cerrar línea de tiempo">
         <svg class="tl-handle-icon" width="12" height="12" viewBox="0 0 12 12" fill="none">
             <path d="M2 8L6 4L10 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>

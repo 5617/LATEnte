@@ -5,6 +5,7 @@ import { Engine } from './engine.js';
 export const Controls = {
     _previewTimeout: null,
     _onVideoEndHandler: null,
+    _onTimeUpdateHandler: null,
 
     init() {
         this.setupAccordion();
@@ -16,6 +17,8 @@ export const Controls = {
         this.setupParametros();
         this.setupDistribucion();
         this.setupGeometriaTipo();
+        this.setupEfectos();
+        this._setupTramasActivas();
         this.setupSave();
         this.setupExport();
         this.setupTimeline();
@@ -302,15 +305,23 @@ export const Controls = {
                 const lastClip = AppState.timeline.clips[AppState.timeline.clips.length - 1];
                 const start = lastClip ? lastClip.start + lastClip.duration : 0;
 
-                AppState.timeline.clips.push({
+                const clip = {
                     id: clipId,
                     name: data.name,
                     src: data.src,
                     start: start,
-                    duration: duration
-                });
+                    duration: duration,
+                    filmstrip: null // se llenará con frames cuando estén listos
+                };
+
+                AppState.timeline.clips.push(clip);
 
                 this._renderTimelineTrack();
+
+                // Generar filmstrip de frames en segundo plano
+                this._generateFilmstrip(clip);
+                this._updateTimelineTotal();
+
                 console.log(`📌 Clip añadido a la línea de tiempo: ${data.name} (${start}s - ${start + duration}s)`);
             } catch (err) {
                 console.warn('Drop inválido:', err);
@@ -396,6 +407,313 @@ export const Controls = {
     },
 
     // ──────────────────────────────────────────────
+    //  GENERAR FILMSTRIP: captura N frames del video
+    // ──────────────────────────────────────────────
+
+    _generateFilmstrip(clip) {
+        if (!clip || !clip.src) return;
+
+        const video = document.createElement('video');
+        video.muted = true;
+        video.preload = 'metadata';
+        video.crossOrigin = 'anonymous';
+        video.src = clip.src;
+
+        const FRAME_COUNT = 6; // frames por clip
+        const FRAME_W = 48;
+        const FRAME_H = 34;
+
+        video.addEventListener('loadedmetadata', () => {
+            const dur = video.duration || clip.duration;
+            const ids = [];
+            let captured = 0;
+
+            const captureFrame = (time) => {
+                video.currentTime = time;
+            };
+
+            video.addEventListener('seeked', function onSeek() {
+                const canvas = document.createElement('canvas');
+                canvas.width = FRAME_W;
+                canvas.height = FRAME_H;
+                const ctx = canvas.getContext('2d');
+                try {
+                    ctx.drawImage(video, 0, 0, FRAME_W, FRAME_H);
+                    ids.push(canvas.toDataURL('image/jpeg', 0.6));
+                } catch (e) {
+                    ids.push(null);
+                }
+                captured++;
+
+                if (captured < FRAME_COUNT) {
+                    const t = (dur / (FRAME_COUNT + 1)) * (captured + 1);
+                    captureFrame(Math.max(0.1, Math.min(t, dur - 0.1)));
+                } else {
+                    clip.filmstrip = ids;
+                    video.remove();
+                    // Re-render para mostrar los frames
+                    this._renderTimelineTrack();
+                }
+            }.bind(this));
+
+            // Arrancar con el primer frame
+            captureFrame(dur / (FRAME_COUNT + 1));
+        });
+
+        video.addEventListener('error', () => {
+            clip.filmstrip = [];
+            video.remove();
+        });
+
+        video.load();
+    },
+
+    // ──────────────────────────────────────────────
+    //  PRECARGA DE CLIP (para transición fluida)
+    // ──────────────────────────────────────────────
+
+    _preloadClip(clip) {
+        if (!clip || !clip.src) return;
+        const hidden = document.getElementById('bg-video-next');
+        if (!hidden) return;
+
+        // Si ya está cargando este mismo src, no reiniciar
+        if (hidden.dataset.prelSrc === clip.src) return;
+
+        hidden.dataset.prelSrc = clip.src;
+        hidden.muted = true;
+        hidden.playsInline = true;
+        hidden.setAttribute('playsinline', '');
+        hidden.setAttribute('crossOrigin', 'anonymous');
+        hidden.style.display = 'none';
+        hidden.src = clip.src;
+        hidden.load();
+        hidden.currentTime = 0;
+    },
+
+    // ── Intercambio instantáneo de videos: el oculto pasa a ser el visible ──
+    _swapVideo() {
+        const current = document.getElementById('bg-video');
+        const hidden = document.getElementById('bg-video-next');
+        if (!current || !hidden) return;
+
+        // Si el hidden no tiene src o no está cargado, salir
+        if (!hidden.src || !hidden.readyState) return;
+
+        // Guardar referencia al current para ocultarlo después
+        const oldVideo = current;
+
+        // Intercambiar IDs: el hidden pasa a ser el activo
+        hidden.id = 'bg-video';
+        hidden.style.display = 'block';
+
+        oldVideo.id = 'bg-video-next';
+        oldVideo.style.display = 'none';
+        oldVideo.removeAttribute('loop');
+
+        // Quitar loop en el nuevo video si estamos en modo timeline
+        if (AppState.timeline.isPlaying) {
+            hidden.removeAttribute('loop');
+        } else {
+            hidden.setAttribute('loop', '');
+        }
+
+        // Aplicar filtros visuales al nuevo video
+        this._applyVideoFilters();
+
+        // Asegurar reproducción
+        hidden.play().catch(() => {});
+
+        // Resetear estado de captura del engine para el nuevo video
+        Engine.hasVideo = false;
+        Engine._captureErrorLogged = false;
+
+        // Limpiar marca de precarga
+        delete hidden.dataset.prelSrc;
+
+        // Re-adjuntar el listener ended al nuevo video activo
+        // (el listener estaba en el elemento viejo, ahora con ID bg-video-next)
+        if (this._onVideoEndHandler) {
+            oldVideo.removeEventListener('ended', this._onVideoEndHandler);
+            const newActive = document.getElementById('bg-video');
+            newActive.addEventListener('ended', this._onVideoEndHandler);
+        }
+    },
+
+    // ──────────────────────────────────────────────
+    //  SCRUBBING: clic en la línea de tiempo para buscar
+    // ──────────────────────────────────────────────
+
+    _setupTimelineScrubbing() {
+        const track = document.getElementById('timeline-track');
+        if (!track) return;
+
+        let isScrubbing = false;
+
+        const seekTo = (clientX) => {
+            const clips = AppState.timeline.clips;
+            if (clips.length === 0) return;
+
+            const rect = track.getBoundingClientRect();
+            const clickX = clientX - rect.left;
+            const pct = Math.max(0, Math.min(1, clickX / rect.width));
+
+            const totalDuration = clips.reduce((sum, c) => sum + c.duration, 0);
+            const targetTime = pct * totalDuration;
+
+            // Encontrar clip y tiempo interno correspondiente
+            let accum = 0;
+            let targetClip = null;
+            let targetClipIndex = -1;
+            let timeWithinClip = 0;
+
+            for (let i = 0; i < clips.length; i++) {
+                const c = clips[i];
+                if (targetTime >= accum && targetTime < accum + c.duration) {
+                    targetClip = c;
+                    targetClipIndex = i;
+                    timeWithinClip = targetTime - accum;
+                    break;
+                }
+                accum += c.duration;
+            }
+
+            if (!targetClip && clips.length > 0) {
+                targetClip = clips[clips.length - 1];
+                targetClipIndex = clips.length - 1;
+                timeWithinClip = targetClip.duration;
+            }
+
+            if (!targetClip) return;
+
+            // ── Actualizar elapsed global ──
+            AppState.timeline.elapsed = targetTime;
+            AppState.timeline.currentClipIndex = targetClipIndex;
+            AppState.timeline.currentClipId = targetClip.id;
+
+            // ── Mover playhead visualmente ──
+            const playhead = track.querySelector('.timeline-playhead');
+            if (playhead) {
+                playhead.style.display = 'block';
+                playhead.style.left = `min(${pct * 100}%, calc(100% - 2px))`;
+            }
+
+            // ── Feedback visual del clip activo ──
+            document.querySelectorAll('.timeline-clip-block').forEach(el => {
+                el.classList.toggle('playing', el.dataset.clipId === targetClip.id);
+            });
+
+            const videoEl = document.getElementById('bg-video');
+            const sameClip = videoEl && AppState.timeline.currentClipId === targetClip.id;
+
+            // ── Mismo clip con video cargado: solo seek ──
+            if (sameClip && videoEl.readyState > 0) {
+                videoEl.currentTime = Math.min(timeWithinClip, videoEl.duration || targetClip.duration);
+                this._updatePlayhead();
+                return;
+            }
+
+            // ── Diferente clip, hay reproducción activa: swap + seek ──
+            if (AppState.timeline.isPlaying && videoEl && videoEl.readyState > 0) {
+                this._preloadClip(targetClip);
+                const videoHidden = document.getElementById('bg-video-next');
+                const doSwap = () => this._swapToClip(targetClip, targetClipIndex, timeWithinClip);
+                if (videoHidden && videoHidden.readyState > 0) {
+                    doSwap();
+                } else if (videoHidden) {
+                    videoHidden.addEventListener('canplay', doSwap, { once: true });
+                    setTimeout(() => {
+                        videoHidden?.removeEventListener('canplay', doSwap);
+                        doSwap();
+                    }, 500);
+                } else {
+                    doSwap();
+                }
+                return;
+            }
+
+            // ── Sin reproducción activa: cargar fresco y seek, SIN auto-play ──
+            Engine.applyBgVideo(targetClip.src);
+            this._applyVideoFilters();
+
+            const v = document.getElementById('bg-video');
+            if (v) {
+                v.removeAttribute('loop');
+                const setTime = () => {
+                    v.currentTime = Math.min(timeWithinClip, v.duration || targetClip.duration);
+                };
+                if (v.readyState > 0) {
+                    setTime();
+                } else {
+                    v.addEventListener('loadedmetadata', setTime, { once: true });
+                }
+            }
+
+            this._updatePlayhead();
+        };
+
+        // ── Mousedown: inicia scrubbing ──
+        track.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.timeline-block-remove')) return;
+            isScrubbing = true;
+            seekTo(e.clientX);
+        });
+
+        // ── Mousemove: drag scrubbing ──
+        document.addEventListener('mousemove', (e) => {
+            if (!isScrubbing) return;
+            seekTo(e.clientX);
+        });
+
+        // ── Mouseup: detiene el drag ──
+        document.addEventListener('mouseup', () => {
+            isScrubbing = false;
+        });
+    },
+
+    // ── Helper: cambia al clip indicado en la posición exacta ──
+    _swapToClip(clip, index, seekTime) {
+        AppState.timeline.currentClipIndex = index;
+        AppState.timeline.currentClipId = clip.id;
+
+        // Calcular elapsed global: suma de clips anteriores + seekTime
+        let elapsedBase = 0;
+        for (let i = 0; i < index; i++) {
+            elapsedBase += AppState.timeline.clips[i].duration;
+        }
+        AppState.timeline.elapsed = elapsedBase + seekTime;
+
+        this._preloadClip(clip);
+        this._swapVideo();
+
+        const videoEl = document.getElementById('bg-video');
+        if (videoEl) {
+            videoEl.removeAttribute('loop');
+            videoEl.currentTime = Math.min(seekTime, videoEl.duration || clip.duration);
+        }
+
+        document.querySelectorAll('.timeline-clip-block').forEach(el => {
+            el.classList.toggle('playing', el.dataset.clipId === clip.id);
+        });
+
+        this._updatePlayhead();
+
+        // Pre-cargar el siguiente clip
+        const nextIdx = index + 1;
+        if (nextIdx < AppState.timeline.clips.length) {
+            this._preloadClip(AppState.timeline.clips[nextIdx]);
+        }
+    },
+
+    // ── Actualiza el label de duración total en la toolbar ──
+    _updateTimelineTotal() {
+        const totalLabel = document.getElementById('timeline-total-label');
+        if (!totalLabel) return;
+        const total = AppState.timeline.clips.reduce((sum, c) => sum + c.duration, 0);
+        totalLabel.textContent = total > 0 ? `Total: ${total}s` : '';
+    },
+
+    // ──────────────────────────────────────────────
     //  TIMELINE: render, preview, stop, clear
     // ──────────────────────────────────────────────
 
@@ -419,6 +737,7 @@ export const Controls = {
         }
 
         this._renderTimelineTrack();
+        this._setupTimelineScrubbing();
     },
 
     _renderTimelineTrack() {
@@ -427,6 +746,10 @@ export const Controls = {
 
         // Limpiar solo los clips, mantener el hint si no hay clips
         const hint = track.querySelector('.timeline-drop-hint');
+
+        // Remover playhead si existe
+        const oldPlayhead = track.querySelector('.timeline-playhead');
+        if (oldPlayhead) oldPlayhead.remove();
 
         // Remover todos los bloques de clip existentes
         track.querySelectorAll('.timeline-clip-block').forEach(el => el.remove());
@@ -454,20 +777,31 @@ export const Controls = {
             block.dataset.clipId = clip.id;
 
             const widthPct = (clip.duration / totalDuration) * 100;
-            block.style.width = `calc(${widthPct}% - 4px)`;
+            block.style.flex = `${clip.duration} ${clip.duration} ${widthPct}%`;
+
+            // ── Filmstrip (frames del video) ──
+            let filmstripHtml = '';
+            if (clip.filmstrip && clip.filmstrip.length > 0) {
+                filmstripHtml = clip.filmstrip.map(url =>
+                    url ? `<img class="filmstrip-frame" src="${url}" alt="">` : `<span class="filmstrip-frame filmstrip-empty"></span>`
+                ).join('');
+            } else {
+                // Placeholder mientras se cargan
+                filmstripHtml = `<div class="filmstrip-loading">🎞</div>`;
+            }
 
             block.innerHTML = `
-                <span class="timeline-block-index">#${index + 1}</span>
-                <span class="timeline-block-name">${clip.name}</span>
-                <span class="timeline-block-time">${clip.duration}s</span>
-                <button class="timeline-block-remove" data-clip-id="${clip.id}" title="Eliminar clip">✕</button>
+                <div class="filmstrip-row">${filmstripHtml}</div>
+                <div class="timeline-block-info">
+                    <span class="timeline-block-index">#${index + 1}</span>
+                    <span class="timeline-block-name">${clip.name}</span>
+                    <span class="timeline-block-time">${clip.duration}s</span>
+                    <button class="timeline-block-remove" data-clip-id="${clip.id}" title="Eliminar clip">✕</button>
+                </div>
             `;
 
-            // Click en el bloque para reproducir ese clip
-            block.addEventListener('click', (e) => {
-                if (e.target.closest('.timeline-block-remove')) return;
-                this._playClip(clip);
-            });
+            // El scrubbing (click/arrastre en el track) maneja el seekeo.
+            // El click en un clip block lo captura _setupTimelineScrubbing.
 
             // Botón de eliminar
             const removeBtn = block.querySelector('.timeline-block-remove');
@@ -475,18 +809,20 @@ export const Controls = {
                 removeBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     AppState.timeline.clips = AppState.timeline.clips.filter(c => c.id !== clip.id);
-                    this._recalcTimelineStarts(); // llama a _renderTimelineTrack internamente
+                    this._recalcTimelineStarts();
                 });
             }
 
             track.appendChild(block);
         });
 
-        // Sombra del total
-        const totalLabel = document.createElement('div');
-        totalLabel.className = 'timeline-total';
-        totalLabel.textContent = `Total: ${totalDuration}s`;
-        track.appendChild(totalLabel);
+        // ── Playhead (aguja de reproducción) ──
+        const playhead = document.createElement('div');
+        playhead.className = 'timeline-playhead';
+        track.appendChild(playhead);
+
+        // Actualizar label de duración total en la toolbar
+        this._updateTimelineTotal();
     },
 
     _recalcTimelineStarts() {
@@ -505,10 +841,79 @@ export const Controls = {
         Engine.applyBgVideo(clip.src);
         this._applyVideoFilters();
 
+        // Si estamos en modo timeline (isPlaying), quitar loop para que ended dispare
+        if (AppState.timeline.isPlaying) {
+            const videoEl = document.getElementById('bg-video');
+            if (videoEl) {
+                videoEl.removeAttribute('loop');
+            }
+        }
+
         // Feedback visual: resaltar bloque activo
         document.querySelectorAll('.timeline-clip-block').forEach(el => {
             el.classList.toggle('playing', el.dataset.clipId === clip.id);
         });
+
+        // Mover playhead al inicio del clip
+        this._updatePlayhead();
+    },
+
+    _updatePlayhead() {
+        const track = document.getElementById('timeline-track');
+        const playhead = track?.querySelector('.timeline-playhead');
+        if (!playhead) return;
+
+        const clips = AppState.timeline.clips;
+        const totalDuration = clips.reduce((sum, c) => sum + c.duration, 0);
+        if (totalDuration <= 0) {
+            playhead.style.display = 'none';
+            return;
+        }
+
+        playhead.style.display = 'block';
+
+        const videoEl = document.getElementById('bg-video');
+        if (!videoEl) return;
+
+        // Remover listener anterior del elemento correcto
+        if (this._onTimeUpdateHandler) {
+            // Intentar remover de ambos elementos por si el listener quedó huérfano
+            const active = document.getElementById('bg-video');
+            const hidden = document.getElementById('bg-video-next');
+            if (active) active.removeEventListener('timeupdate', this._onTimeUpdateHandler);
+            if (hidden) hidden.removeEventListener('timeupdate', this._onTimeUpdateHandler);
+        }
+
+        const onTimeUpdate = () => {
+            if (!AppState.timeline.isPlaying) {
+                videoEl.removeEventListener('timeupdate', onTimeUpdate);
+                return;
+            }
+
+            const clips = AppState.timeline.clips;
+            const currentClipId = AppState.timeline.currentClipId;
+            if (!currentClipId || clips.length === 0) return;
+
+            const clipIdx = clips.findIndex(c => c.id === currentClipId);
+            if (clipIdx === -1) return;
+
+            // Tiempo acumulado GLOBAL: suma de duraciones de clips anteriores + currentTime del video
+            let elapsedBase = 0;
+            for (let i = 0; i < clipIdx; i++) {
+                elapsedBase += clips[i].duration;
+            }
+
+            const curTime = videoEl.currentTime || 0;
+            const elapsed = elapsedBase + curTime;
+            AppState.timeline.elapsed = elapsed;
+
+            const totalDur = clips.reduce((sum, c) => sum + c.duration, 0);
+            const pct = totalDur > 0 ? (elapsed / totalDur) * 100 : 0;
+            playhead.style.left = `min(${pct}%, calc(100% - 2px))`;
+        };
+
+        this._onTimeUpdateHandler = onTimeUpdate;
+        videoEl.addEventListener('timeupdate', onTimeUpdate);
     },
 
     _previewTimeline() {
@@ -516,31 +921,105 @@ export const Controls = {
         if (clips.length === 0) return;
 
         AppState.timeline.isPlaying = true;
-        AppState.timeline.currentClipIndex = 0;
 
         const previewBtn = document.getElementById('timeline-btn-preview');
         const stopBtn = document.getElementById('timeline-btn-stop');
         if (previewBtn) previewBtn.disabled = true;
         if (stopBtn) stopBtn.disabled = false;
 
-        // Desactivar loop para que el evento 'ended' se dispare
+        // ── RESUME: si hay posición guardada y mismo clip cargado, solo reanudar ──
         const videoEl = document.getElementById('bg-video');
+        if (AppState.timeline.elapsed > 0
+            && AppState.timeline.currentClipId
+            && videoEl && videoEl.readyState > 0) {
+
+            videoEl.removeAttribute('loop');
+
+            // Re-adjuntar handler ended (apunta al clip actual, no al siguiente)
+            if (this._onVideoEndHandler) {
+                videoEl.removeEventListener('ended', this._onVideoEndHandler);
+            }
+            this._onVideoEndHandler = () => {
+                if (!AppState.timeline.isPlaying) return;
+                const nextIdx = AppState.timeline.currentClipIndex + 1;
+                if (nextIdx < clips.length) {
+                    AppState.timeline.currentClipIndex = nextIdx;
+                    const nextClip = clips[nextIdx];
+                    AppState.timeline.currentClipId = nextClip.id;
+                    this._swapVideo();
+                    document.querySelectorAll('.timeline-clip-block').forEach(el => {
+                        el.classList.toggle('playing', el.dataset.clipId === nextClip.id);
+                    });
+                    this._updatePlayhead();
+                    const nextNextIdx = nextIdx + 1;
+                    if (nextNextIdx < clips.length) {
+                        this._preloadClip(clips[nextNextIdx]);
+                    }
+                } else {
+                    this._stopTimeline();
+                }
+            };
+            videoEl.addEventListener('ended', this._onVideoEndHandler);
+
+            videoEl.play().catch(() => {});
+            this._updatePlayhead();
+
+            // Pre-cargar el siguiente clip si no está ya
+            const nextIdx = AppState.timeline.currentClipIndex + 1;
+            if (nextIdx < clips.length) {
+                this._preloadClip(clips[nextIdx]);
+            }
+
+            return;
+        }
+
+        // ── START FROM BEGINNING ──
+        AppState.timeline.currentClipIndex = 0;
+        AppState.timeline.elapsed = 0;
+
+        // Pre-cargar el segundo clip (transición fluida)
+        if (clips.length > 1) {
+            this._preloadClip(clips[1]);
+        }
+
+        // Remover loop para que 'ended' se dispare
         if (videoEl) {
             videoEl.removeAttribute('loop');
 
-            if (!this._onVideoEndHandler) {
-                this._onVideoEndHandler = () => {
-                    if (!AppState.timeline.isPlaying) return;
-                    const nextIdx = AppState.timeline.currentClipIndex + 1;
-                    if (nextIdx < AppState.timeline.clips.length) {
-                        AppState.timeline.currentClipIndex = nextIdx;
-                        this._playClip(AppState.timeline.clips[nextIdx]);
-                    } else {
-                        this._stopTimeline();
-                    }
-                };
-                videoEl.addEventListener('ended', this._onVideoEndHandler);
+            // Remover handler anterior si existe
+            if (this._onVideoEndHandler) {
+                videoEl.removeEventListener('ended', this._onVideoEndHandler);
             }
+
+            this._onVideoEndHandler = () => {
+                if (!AppState.timeline.isPlaying) return;
+                const nextIdx = AppState.timeline.currentClipIndex + 1;
+                if (nextIdx < AppState.timeline.clips.length) {
+                    AppState.timeline.currentClipIndex = nextIdx;
+                    const nextClip = AppState.timeline.clips[nextIdx];
+                    AppState.timeline.currentClipId = nextClip.id; // ✨ FIX CRÍTICO
+
+                    // Usar swap en vez de recargar desde cero
+                    this._swapVideo();
+
+                    // Feedback visual: resaltar bloque activo
+                    document.querySelectorAll('.timeline-clip-block').forEach(el => {
+                        el.classList.toggle('playing', el.dataset.clipId === nextClip.id);
+                    });
+
+                    this._updatePlayhead();
+
+                    // Pre-cargar el siguiente (si hay más)
+                    const nextNextIdx = nextIdx + 1;
+                    if (nextNextIdx < AppState.timeline.clips.length) {
+                        this._preloadClip(AppState.timeline.clips[nextNextIdx]);
+                    }
+                } else {
+                    this._stopTimeline();
+                }
+            };
+
+            videoEl.addEventListener('ended', this._onVideoEndHandler);
         }
 
         // Reproducir el primer clip
@@ -549,19 +1028,49 @@ export const Controls = {
 
     _stopTimeline() {
         AppState.timeline.isPlaying = false;
-        AppState.timeline.currentClipId = null;
-        AppState.timeline.currentClipIndex = -1;
+        // NO reseteamos currentClipId ni currentClipIndex:
+        // queremos que el playhead se quede en la posición donde se detuvo.
 
-        // Detener reproducción, restaurar loop y remover listener de 'ended'
         const videoEl = document.getElementById('bg-video');
         if (videoEl) {
             videoEl.pause();
-            videoEl.currentTime = 0;
+            // NO reseteamos currentTime = 0 — el video se congela en el frame actual
             videoEl.setAttribute('loop', '');
             if (this._onVideoEndHandler) {
                 videoEl.removeEventListener('ended', this._onVideoEndHandler);
                 this._onVideoEndHandler = null;
+            }        // NO removemos el listener timeupdate para que el playhead
+        // no se mueva mientras está pausado (timeupdate no se dispara en pause).
+        }
+
+        // Limpiar listeners huérfanos (elementos que quedaron tras un swap)
+        if (this._onTimeUpdateHandler) {
+            const hiddenEl = document.getElementById('bg-video-next');
+            if (hiddenEl) hiddenEl.removeEventListener('timeupdate', this._onTimeUpdateHandler);
+            // También del activo por si hubiera quedado colgado
+            const activeEl = document.getElementById('bg-video');
+            if (activeEl) activeEl.removeEventListener('timeupdate', this._onTimeUpdateHandler);
+        }
+        this._onTimeUpdateHandler = null;
+
+        // Limpiar y resetear el video oculto de precarga
+        const hidden = document.getElementById('bg-video-next');
+        if (hidden) {
+            hidden.pause();
+            hidden.removeAttribute('src');
+            hidden.load();
+            hidden.style.display = 'none';
+            delete hidden.dataset.prelSrc;
+            // Asegurar que el ID del hidden sea correcto (por si quedó mal)
+            if (hidden.id !== 'bg-video-next') {
+                hidden.id = 'bg-video-next';
             }
+        }
+
+        // Asegurar que bg-video tenga el ID correcto
+        const current = document.getElementById('bg-video');
+        if (!current && videoEl) {
+            videoEl.id = 'bg-video';
         }
 
         const previewBtn = document.getElementById('timeline-btn-preview');
@@ -569,14 +1078,19 @@ export const Controls = {
         if (previewBtn) previewBtn.disabled = false;
         if (stopBtn) stopBtn.disabled = true;
 
+        // NO ocultamos el playhead — se queda donde está
+
         document.querySelectorAll('.timeline-clip-block').forEach(el => el.classList.remove('playing'));
 
-        console.log('⏹ Secuencia detenida');
+        console.log('⏹ Secuencia detenida — posición preservada');
     },
 
     _clearTimeline() {
         AppState.timeline.clips = [];
         AppState.timeline.nextId = 1;
+        AppState.timeline.currentClipId = null;
+        AppState.timeline.currentClipIndex = -1;
+        AppState.timeline.elapsed = 0;
         this._stopTimeline();
         this._renderTimelineTrack();
         console.log('🧹 Línea de tiempo limpiada');
@@ -867,8 +1381,77 @@ export const Controls = {
             console.log(`🔷 Geometría cambiada a: ${tipo}`);
         });
 
-        // Exponer toggleVis para que setupFormas lo llame
-        this._toggleGeometriaVis = toggleVis;
+        // Exponer toggleVis para que setupFormas lo llame            this._toggleGeometriaVis = toggleVis;
+        },
+
+    // ── Toggle Tramas Visuales on/off ──
+    _setupTramasActivas() {
+        const check = document.getElementById('tramas-activas-check');
+        if (check) {
+            check.addEventListener('change', () => {
+                AppState.tramasActivas = check.checked;
+            });
+        }
+    },
+
+    // ──────────────────────────────────────────────
+    //  EFECTOS DE VIDEO
+    // ──────────────────────────────────────────────
+
+    setupEfectos() {
+        // ── CALEIDOSCOPIO ──
+        const ckCheck = document.getElementById('efecto-caleidoscopio-check');
+        const ckSlider = document.getElementById('efecto-caleidoscopio-segmentos');
+        const ckVal = document.getElementById('val-caleidoscopio-segmentos');
+        if (ckCheck) {
+            ckCheck.addEventListener('change', () => {
+                AppState.efectos.caleidoscopio.activo = ckCheck.checked;
+            });
+        }
+        if (ckSlider && ckVal) {
+            ckSlider.addEventListener('input', () => {
+                const val = parseInt(ckSlider.value);
+                AppState.efectos.caleidoscopio.segmentos = val;
+                ckVal.textContent = val;
+            });
+        }
+
+        // ── PIXELART ──
+        const pxCheck = document.getElementById('efecto-pixelart-check');
+        const pxSlider = document.getElementById('efecto-pixelart-tamanio');
+        const pxVal = document.getElementById('val-pixelart-tamanio');
+        if (pxCheck) {
+            pxCheck.addEventListener('change', () => {
+                AppState.efectos.pixelart.activo = pxCheck.checked;
+            });
+        }
+        if (pxSlider && pxVal) {
+            const updatePx = () => {
+                const factor = parseInt(pxSlider.value);
+                const pixelSize = Math.pow(2, factor); // 2,4,8,16,32,64
+                AppState.efectos.pixelart.tamanioPixel = pixelSize;
+                pxVal.textContent = pixelSize + 'px';
+            };
+            pxSlider.addEventListener('input', updatePx);
+            updatePx();
+        }
+
+        // ── NOISE ──
+        const nsCheck = document.getElementById('efecto-noise-check');
+        const nsSlider = document.getElementById('efecto-noise-intensidad');
+        const nsVal = document.getElementById('val-noise-intensidad');
+        if (nsCheck) {
+            nsCheck.addEventListener('change', () => {
+                AppState.efectos.noise.activo = nsCheck.checked;
+            });
+        }
+        if (nsSlider && nsVal) {
+            nsSlider.addEventListener('input', () => {
+                const val = parseFloat(nsSlider.value);
+                AppState.efectos.noise.intensidad = val;
+                nsVal.textContent = val.toFixed(2);
+            });
+        }
     },
 
     // ──────────────────────────────────────────────
@@ -885,6 +1468,7 @@ export const Controls = {
         const btn = document.getElementById('panel-toggle');
         const panel = document.querySelector('.control-panel');
         const viewer = document.querySelector('.viewer-container');
+        const timeline = document.getElementById('timeline-container');
         const icon = btn?.querySelector('.toggle-icon');
         if (!btn || !panel) return;
 
@@ -893,12 +1477,14 @@ export const Controls = {
             btn.classList.toggle('panel-open', !isOpen);
             btn.classList.toggle('panel-closed', isOpen);
 
-            // Lógica corregida:
-            // Panel ABIERTO → flecha DERECHA (›) indica que se cierra hacia la derecha
-            // Panel CERRADO → flecha IZQUIERDA (‹) indica que se abre hacia la izquierda
+            // Viewer y timeline se expanden cuando el panel está oculto
+            if (viewer) viewer.classList.toggle('panel-hidden', isOpen);
+            if (timeline) timeline.classList.toggle('panel-hidden', isOpen);
+
+            // Panel visible: flecha DERECHA (→) para indicar "ocultar hacia la derecha"
+            // Panel oculto: flecha IZQUIERDA (←) para indicar "mostrar desde la derecha"
             if (icon) {
-                // Rotar el SVG 180° según el estado
-                icon.style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+                icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
             }
             btn.title = isOpen ? 'Mostrar panel' : 'Ocultar panel';
 
@@ -930,9 +1516,8 @@ export const Controls = {
             const viewer = document.querySelector('.viewer-container');
             if (viewer) viewer.classList.add('splash-reveal');
 
-            // Cargar video por defecto: Flor 1 (margarita)
-            // Esto ocurre dentro del gesto del usuario, necesario para autoplay
-            this._loadDefaultVideo();
+            // No cargar ningún video — se muestra el empty state
+            // [ ESPERANDO SEÑAL ] hasta que el usuario arrastre un video
 
             // Ocultar completamente tras la transición
             setTimeout(() => {
@@ -940,38 +1525,6 @@ export const Controls = {
                 if (viewer) viewer.classList.remove('splash-reveal');
             }, 900);
         });
-    },
-
-    // ──────────────────────────────────────────────
-    //  CARGA INICIAL: Flor 1 por defecto
-    // ──────────────────────────────────────────────
-
-    _loadDefaultVideo() {
-        const gallery = document.getElementById('video-gallery-grid');
-        if (!gallery) return;
-
-        // Buscar el thumbnail de Flor 1 (data-video="flor-1")
-        const defaultThumb = gallery.querySelector('.video-thumb[data-video="flor-1"]');
-        if (!defaultThumb) return;
-
-        const index = Array.from(gallery.children).indexOf(defaultThumb);
-        const videoUrl = defaultThumb.dataset.clipSrc;
-        if (!videoUrl) return;
-
-        // Limpiar selección previa y marcar Flor 1 como activa
-        gallery.querySelectorAll('.video-thumb').forEach(el => el.classList.remove('active'));
-        defaultThumb.classList.add('active');
-
-        // Actualizar estado
-        AppState.video.source = 'gallery';
-        AppState.video.galleryIndex = index;
-        AppState.video.uploadFile = null;
-
-        // Cargar y reproducir el video
-        Engine.applyBgVideo(videoUrl);
-        this._applyVideoFilters();
-
-        console.log('Video inicial cargado: Flor 1');
     },
 
     setupDistribucion() {
@@ -1061,39 +1614,14 @@ export const Controls = {
             // Crear tarjeta de preset dinámico en la grilla
             this._addPresetCard(name, snapshot);
 
-            // Guardar en disco via API
-            fetch('/api/presets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(snapshot)
-            })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        console.log(`💾 Preset guardado en disco: ${data.fileName}`);
-                        if (statusDiv) {
-                            statusDiv.textContent = `✅ «${name}» guardado en presets/${data.fileName}`;
-                            setTimeout(() => { statusDiv.textContent = ''; }, 3000);
-                        }
-                    } else {
-                        console.warn('Error del servidor al guardar preset:', data.error);
-                        if (statusDiv) {
-                            statusDiv.textContent = `⚠️ Error en servidor: ${data.error}`;
-                            setTimeout(() => { statusDiv.textContent = ''; }, 4000);
-                        }
-                    }
-                })
-                .catch(err => {
-                    console.warn('No se pudo conectar al servidor para guardar preset:', err.message);
-                    // Fallback: mostrar mensaje local
-                    if (statusDiv) {
-                        statusDiv.textContent = `⚠️ «${name}» guardado solo localmente (servidor no disponible).`;
-                        setTimeout(() => { statusDiv.textContent = ''; }, 4000);
-                    }
-                });
+            // Feedback instantáneo (solo LocalStorage — 100% frontend)
+            if (statusDiv) {
+                statusDiv.textContent = `✅ «${name}» guardado en el panel.`;
+                setTimeout(() => { statusDiv.textContent = ''; }, 3000);
+            }
 
             if (nameInput) nameInput.value = '';
-            console.log(`💾 Proyecto guardado: ${name}`);
+            console.log(`💾 Preset guardado en localStorage: ${name}`);
         });
 
         // ── EXPORTAR JSON ──
@@ -1347,63 +1875,388 @@ export const Controls = {
     // ──────────────────────────────────────────────
 
     setupExport() {
-        const recordBtn = document.getElementById('btn-export-record');
         const statusDiv = document.getElementById('export-status');
-        const canvasElement = document.getElementById('pattern-canvas');
-        if (!recordBtn || !statusDiv || !canvasElement) return;
+        const canvasEl = document.getElementById('pattern-canvas');
+        if (!statusDiv || !canvasEl) return;
 
-        let mediaRecorder = null;
-        let recordingChunks = [];
-        let isRecording = false;
+        const setStatus = (msg, isError) => {
+            statusDiv.textContent = msg;
+            if (isError) statusDiv.style.color = '#e74c3c';
+            else statusDiv.style.color = '';
+            setTimeout(() => {
+                if (statusDiv.textContent === msg) statusDiv.textContent = '';
+            }, 4000);
+        };
 
-        recordBtn.addEventListener('click', () => {
-            if (!isRecording) {
-                // ── INICIAR GRABACIÓN ──
-                const stream = canvasElement.captureStream(30);
-                const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-                    ? 'video/webm;codecs=vp9'
-                    : 'video/webm';
+        const downloadBlob = (blob, filename) => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        };
 
-                mediaRecorder = new MediaRecorder(stream, { mimeType });
-                recordingChunks = [];
-
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) recordingChunks.push(e.data);
-                };
-
-                mediaRecorder.onstop = () => {
-                    const blob = new Blob(recordingChunks, { type: 'video/webm' });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'latente-visual.webm';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url);
-
-                    statusDiv.textContent = '✅ Video exportado';
-                    setTimeout(() => { statusDiv.textContent = ''; }, 3000);
-                };
-
-                mediaRecorder.start(1000); // chunks cada 1s
-                isRecording = true;
-                recordBtn.classList.add('recording');
-                recordBtn.querySelector('.export-format-name').textContent = '⬤ Grabando...';
-                statusDiv.textContent = '⏺ Grabando canvas en tiempo real...';
-
-                console.log('🔴 Export: grabación iniciada');
-            } else {
-                // ── DETENER GRABACIÓN Y DESCARGAR ──
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                    mediaRecorder.stop();
-                }
-                isRecording = false;
-                recordBtn.classList.remove('recording');
-                recordBtn.querySelector('.export-format-name').textContent = '● Exportar';
-
-                console.log('⏹ Export: grabación detenida, descargando...');
+        // Convertir dataURL a Blob
+        const dataUrlToBlob = (dataUrl) => {
+            const parts = dataUrl.split(',');
+            const mime = parts[0].match(/:(.*?);/)[1];
+            const raw = atob(parts[1]);
+            const len = raw.length;
+            const arr = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                arr[i] = raw.charCodeAt(i);
             }
-        });
+            return new Blob([arr], { type: mime });
+        };
+
+        const captureFrame = (format, quality) => {
+            // Usar el canvas PRINCIPAL (pattern-canvas) que tiene la composicion completa
+            // Engine._efectsCanvas NO se usa porque solo tiene el video+efectos, sin tramas
+            if (!canvasEl || canvasEl.width === 0) {
+                setStatus('❌ No hay contenido para exportar', true);
+                return null;
+            }
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasEl.width;
+            tempCanvas.height = canvasEl.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            if (format === 'jpeg') {
+                tempCtx.fillStyle = '#000000';
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            }
+
+            // Capturar el frame actual del canvas principal (incluye video+efectos+tramas)
+            tempCtx.drawImage(canvasEl, 0, 0);
+
+            return tempCanvas.toDataURL(`image/${format === 'jpeg' ? 'jpeg' : 'png'}`, quality || 0.92);
+        };
+
+        // ─── PNG ───
+        const pngBtn = document.getElementById('btn-export-png');
+        if (pngBtn) {
+            pngBtn.addEventListener('click', () => {
+                const dataUrl = captureFrame('png');
+                if (!dataUrl) return;
+                downloadBlob(dataUrlToBlob(dataUrl),
+                    `latente-captura-${Date.now()}.png`);
+                setStatus('✅ PNG exportado');
+            });
+        }
+
+        // ─── JPG ───
+        const jpgBtn = document.getElementById('btn-export-jpg');
+        if (jpgBtn) {
+            jpgBtn.addEventListener('click', () => {
+                const dataUrl = captureFrame('jpeg', 0.9);
+                if (!dataUrl) return;
+                downloadBlob(dataUrlToBlob(dataUrl),
+                    `latente-captura-${Date.now()}.jpg`);
+                setStatus('✅ JPG exportado');
+            });
+        }
+
+        // ─── MP4 (MediaRecorder toggle) ───
+        const mp4Btn = document.getElementById('btn-export-mp4');
+        if (mp4Btn) {
+            let mediaRecorder = null;
+            let recordingChunks = [];
+            let isRecording = false;
+
+            const resetMp4Btn = () => {
+                isRecording = false;
+                mp4Btn.classList.remove('recording');
+                mp4Btn.querySelector('.export-format-name').textContent = 'MP4';
+                mp4Btn.querySelector('.export-format-desc').textContent = 'Grabar secuencia';
+            };
+
+            mp4Btn.addEventListener('click', () => {
+                if (!isRecording) {
+                    try {
+                        const stream = canvasEl.captureStream(30);
+
+                        // Validar que el stream tenga tracks de video
+                        if (!stream || !stream.getVideoTracks || !stream.getVideoTracks().length) {
+                            setStatus('❌ El canvas no está generando video', true);
+                            return;
+                        }
+
+                        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+                            ? 'video/webm;codecs=vp9'
+                            : 'video/webm';
+
+                        // Verificar que al menos el codec base sea soportado
+                        if (!MediaRecorder.isTypeSupported(mimeType)) {
+                            setStatus('❌ Tu navegador no soporta grabación de video', true);
+                            return;
+                        }
+
+                        mediaRecorder = new MediaRecorder(stream, { mimeType });
+                        recordingChunks = [];
+
+                        mediaRecorder.ondataavailable = (e) => {
+                            if (e.data.size > 0) recordingChunks.push(e.data);
+                        };
+
+                        mediaRecorder.onstop = () => {
+                            try {
+                                if (recordingChunks.length === 0) {
+                                    setStatus('❌ No se grabó ningún dato', true);
+                                    return;
+                                }
+                                const blob = new Blob(recordingChunks, { type: 'video/webm' });
+                                downloadBlob(blob, `latente-secuencia-${Date.now()}.webm`);
+                                setStatus('✅ Video exportado');
+                            } catch (e) {
+                                setStatus('❌ Error al generar el video: ' + e.message, true);
+                            }
+                        };
+
+                        mediaRecorder.onerror = () => {
+                            setStatus('❌ Error durante la grabación', true);
+                            resetMp4Btn();
+                        };
+
+                        mediaRecorder.start(1000);
+                        isRecording = true;
+                        mp4Btn.classList.add('recording');
+                        mp4Btn.querySelector('.export-format-name').textContent = 'Grabando';
+                        mp4Btn.querySelector('.export-format-desc').textContent = 'Tocar para detener';
+                        setStatus('⏺ Grabando...');
+                        console.log('🔴 MP4 grabación iniciada');
+                    } catch (e) {
+                        setStatus('❌ Error al iniciar grabación: ' + e.message, true);
+                        resetMp4Btn();
+                    }
+                } else {
+                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                        try {
+                            // Forzar último fragmento de datos antes de detener
+                            mediaRecorder.requestData();
+                        } catch (_) { /* ignore */ }
+                        mediaRecorder.stop();
+                    }
+                    resetMp4Btn();
+                    console.log('⏹ MP4 grabación detenida');
+                }
+            });
+        }
+
+        // ─── GIF ───
+        const gifBtn = document.getElementById('btn-export-gif');
+        if (gifBtn) {
+            let gifFrames = [];
+            let gifInterval = null;
+            let isGrabbingGif = false;
+            let gifImageW = 0;
+            let gifImageH = 0;
+
+            gifBtn.addEventListener('click', () => {
+                if (!isGrabbingGif) {
+                    if (!canvasEl || canvasEl.width === 0) {
+                        setStatus('❌ No hay contenido para exportar', true);
+                        return;
+                    }
+
+                    isGrabbingGif = true;
+                    gifFrames = [];
+                    gifImageW = Math.min(canvasEl.width, 640);
+                    gifImageH = Math.round(gifImageW * (canvasEl.height / canvasEl.width));
+
+                    gifBtn.classList.add('grabbing-gif');
+                    gifBtn.querySelector('.export-format-name').textContent = 'Capturando';
+                    gifBtn.querySelector('.export-format-desc').textContent = `2.5s · ${Math.floor(2500 / 100)} frames`;
+                    setStatus('⏺ Capturando fotogramas para GIF...');
+
+                    const DURATION = 2500; // ms
+                    const INTERVAL = 100;  // ms
+                    let elapsed = 0;
+
+                    gifInterval = setInterval(() => {
+                        if (elapsed >= DURATION) {
+                            clearInterval(gifInterval);
+                            gifInterval = null;
+                            this._exportGif(gifFrames, gifImageW, gifImageH,
+                                setStatus, downloadBlob, gifBtn);
+                            isGrabbingGif = false;
+                            return;
+                        }
+
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = gifImageW;
+                        tempCanvas.height = gifImageH;
+                        const tempCtx = tempCanvas.getContext('2d');
+                        tempCtx.fillStyle = '#000000';
+                        tempCtx.fillRect(0, 0, gifImageW, gifImageH);
+                        tempCtx.drawImage(canvasEl, 0, 0, gifImageW, gifImageH);
+                        gifFrames.push(tempCanvas.toDataURL('image/png'));
+
+                        elapsed += INTERVAL;
+                        const remaining = ((DURATION - elapsed) / 1000).toFixed(1);
+                        gifBtn.querySelector('.export-format-desc').textContent =
+                            `${gifFrames.length} frames · ${remaining}s`;
+                    }, INTERVAL);
+                } else {
+                    if (gifInterval) {
+                        clearInterval(gifInterval);
+                        gifInterval = null;
+                    }
+                    isGrabbingGif = false;
+                    gifBtn.classList.remove('grabbing-gif');
+                    gifBtn.querySelector('.export-format-name').textContent = 'GIF';
+                    gifBtn.querySelector('.export-format-desc').textContent = 'Animación en bucle';
+                    gifFrames = [];
+                    setStatus('❌ Captura cancelada', true);
+                }
+            });
+        }
+    },
+
+    // ── Exportar GIF usando gif.js desde CDN ──
+    _exportGif(frames, imgW, imgH, setStatus, downloadBlob, gifBtn) {
+        gifBtn.classList.remove('grabbing-gif');
+        gifBtn.querySelector('.export-format-name').textContent = 'GIF';
+        gifBtn.querySelector('.export-format-desc').textContent = 'Procesando...';
+        setStatus('⏳ Procesando GIF...');
+
+        // Reset UI helper
+        const resetUI = (msg, isError) => {
+            gifBtn.querySelector('.export-format-desc').textContent = 'Animación en bucle';
+            setStatus(msg, isError);
+        };
+
+        // Evitar múltiples exportaciones (race condition timeout vs onload)
+        let completed = false;
+
+        // Timeout de seguridad: si el CDN no responde o el render se cuelga
+        let timeoutId = setTimeout(() => {
+            if (completed) return;
+            completed = true;
+            timeoutId = null;
+            resetUI('❌ Tiempo de espera agotado — exportando frame estático', true);
+            this._encodeGifFallback(frames, downloadBlob, gifBtn, setStatus);
+        }, 8000);
+
+        const safeRender = () => {
+            if (completed) return;
+            completed = true;
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            this._renderGif(frames, imgW, imgH, setStatus, downloadBlob, gifBtn, resetUI);
+        };
+
+        // Evitar acumular múltiples script tags
+        if (!document.querySelector('script[src*="gif.js@0.2.0"]')) {
+            const script = document.createElement('script');
+            // Setear onload/onerror ANTES de appendChild para evitar race condition con caché
+            script.onload = safeRender;
+            script.onerror = () => {
+                if (completed) return;
+                completed = true;
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                resetUI('⚠️ CDN no disponible — exportando frame estático', false);
+                this._encodeGifFallback(frames, downloadBlob, gifBtn, setStatus);
+            };
+            script.src = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
+            document.head.appendChild(script);
+        } else {
+            safeRender();
+        }
+    },
+
+    _renderGif(frames, imgW, imgH, setStatus, downloadBlob, gifBtn, resetUI) {
+        try {
+            if (typeof GIF === 'undefined') {
+                resetUI('⚠️ Librería GIF no disponible — exportando frame estático', false);
+                this._encodeGifFallback(frames, downloadBlob, gifBtn, setStatus);
+                return;
+            }
+
+            // workers: 0 para evitar Web Workers que fallan con CDN antiguo
+            const gif = new GIF({
+                workers: 0,
+                quality: 10,
+                width: imgW || 320,
+                height: imgH || 240
+            });
+
+            let loaded = 0;
+            const totalFrames = frames.length;
+
+            frames.forEach((dataUrl) => {
+                const img = new Image();
+                img.onload = () => {
+                    gif.addFrame(img, { delay: 100, copy: true });
+                    loaded++;
+                    if (loaded === totalFrames) {
+                        gif.on('progress', (pct) => {
+                            gifBtn.querySelector('.export-format-desc').textContent =
+                                `Codificando ${Math.round(pct * 100)}%`;
+                        });
+                        gif.on('finished', (blob) => {
+                            downloadBlob(blob, `latente-loop-${Date.now()}.gif`);
+                            gifBtn.querySelector('.export-format-desc').textContent =
+                                'Animación en bucle';
+                            setStatus('✅ GIF exportado');
+                        });
+                        gif.render();
+                    }
+                };
+                img.onerror = () => {
+                    loaded++;
+                    if (loaded === totalFrames) {
+                        resetUI('❌ Error al cargar fotogramas', true);
+                    }
+                };
+                img.src = dataUrl;
+            });
+        } catch (e) {
+            resetUI('❌ Error: ' + e.message, true);
+        }
+    },
+
+    // ── Fallback: codificador GIF inline mínimo ──
+    _encodeGifFallback(frames, downloadBlob, gifBtn, setStatus) {
+        try {
+            // Reducir frames a la mitad para mantener el tamaño manejable
+            const reduced = frames.filter((_, i) => i % 2 === 0);
+            const firstCanvas = document.createElement('canvas');
+            firstCanvas.width = 320;
+            firstCanvas.height = 240;
+            const firstCtx = firstCanvas.getContext('2d');
+            firstCtx.fillStyle = '#000000';
+            firstCtx.fillRect(0, 0, 320, 240);
+
+            // Cargar primer frame
+            const img = new Image();
+            img.onload = () => {
+                firstCtx.drawImage(img, 0, 0, 320, 240);
+                const dataUrl = firstCanvas.toDataURL('image/gif');
+                const byteString = atob(dataUrl.split(',')[1]);
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                downloadBlob(new Blob([ab], { type: 'image/gif' }),
+                    `latente-frame-${Date.now()}.gif`);
+                gifBtn.querySelector('.export-format-desc').textContent = 'Animación en bucle';
+                setStatus('✅ Frame exportado (GIF completo requiere conexión)');
+            };
+            img.onerror = () => {
+                setStatus('❌ Error en codificación alternativa', true);
+                gifBtn.querySelector('.export-format-desc').textContent = 'Animación en bucle';
+            };
+            img.src = reduced[0];
+        } catch (e) {
+            setStatus('❌ Error: ' + e.message, true);
+            gifBtn.querySelector('.export-format-desc').textContent = 'Animación en bucle';
+        }
     }
 };

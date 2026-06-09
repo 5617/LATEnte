@@ -19,6 +19,11 @@ export const Engine = {
     // Video analysis
     offscreen: null,
     offCtx: null,
+
+    // Effects processing
+    _efectsCanvas: null,
+    _efectsCtx: null,
+    _noiseSeed: 0,
     prevFrame: null,      // Float32Array(GRID_COLS * GRID_ROWS) — luminancia anterior
     frameData: null,      // ImageData del frame actual (80x60)
     videoData: null,      // { brillo[][], movimiento[][], colorR[][], colorG[][], colorB[][] }
@@ -30,6 +35,8 @@ export const Engine = {
     _constellationPoints: null, // Para Constelaciones
     _captureErrorLogged: false, // Evita spam de error CORS en consola
     _useSyntheticData: false,   // Fallback para file:// o CORS
+    _hasSource: false,    // true cuando se ha cargado al menos un video fuente
+    _emptyStatePulse: 0, // temporizador para la animación del empty state
 
     init(canvasElement, currentSettings) {
         this.canvas = canvasElement;
@@ -46,6 +53,17 @@ export const Engine = {
         this.prevFrame = new Float32Array(GRID_COLS * GRID_ROWS);
         this.time = Math.random() * 100; // Semilla para ondas sintéticas desde el primer frame
         this._initGrid();
+
+        // Canvas para procesamiento de efectos de video
+        this._efectsCanvas = document.createElement('canvas');
+        this._efectsCtx = this._efectsCanvas.getContext('2d');
+        this._noiseSeed = 0;
+        this._pixelTempCanvas = document.createElement('canvas');
+        this._kaleidTempCanvas = document.createElement('canvas');
+
+        // Canvas independiente para tramas visuales (capa limpia sobre efectos)
+        this._tramasCanvas = document.createElement('canvas');
+        this._tramasCtx = this._tramasCanvas.getContext('2d');
 
         // Resize handler
         const resize = () => {
@@ -448,6 +466,12 @@ export const Engine = {
         const W = this.canvas.clientWidth;
         const H = this.canvas.clientHeight;
 
+        // ── EMPTY STATE: no hay fuente de video cargada → mostrar mensaje ──
+        if (!this._hasSource) {
+            this._renderEmptyState(ctx, W, H);
+            return;
+        }
+
         // Capturar y analizar frame de video
         // _captureFrame maneja internamente el error CORS y genera datos sintéticos
         try {
@@ -466,16 +490,67 @@ export const Engine = {
         const velMod = this._modularVelocidad(centerIdx, formaParams);
         this.time += 0.016 * this.settings.speed * (0.3 + 1.7 * velMod);
 
-        // Fondo transparente: el <video> detrás del canvas se ve a través
-        ctx.clearRect(0, 0, W, H);
+        // ── CAPA 1: Fondo de video con efectos (cascada caleidoscopio/pixelart/noise) ──
+        const tieneEfectos = AppState.efectos?.caleidoscopio?.activo
+            || AppState.efectos?.pixelart?.activo
+            || AppState.efectos?.noise?.activo;
 
-        // Renderizar formas sobre el video (con transparencia/mezcla)
+        if (tieneEfectos) {
+            this._renderVideoBackground(W, H);
+        } else {
+            // Fondo transparente: el <video> detrás del canvas se ve a través
+            ctx.clearRect(0, 0, W, H);
+        }
+
+        // ── CAPA 2: Tramas visuales renderizadas en su propio canvas independiente ──
+        // Esto asegura que los filtros (caleidoscopio, pixelart, noise) solo afecten
+        // al video de fondo y nunca deformen las tramas.
+        if (AppState.tramasActivas !== false) {
+            this._renderTramasLayer(W, H, forma, formaParams);
+        }
+    },
+
+    // ──────────────────────────────────────────────
+    //  CAPA DE TRAMAS VISUALES (offscreen canvas independiente)
+    //  Renderiza las formas en un canvas separado para que los
+    //  efectos de video (caleidoscopio, pixelart, noise) jamás
+    //  las deformen. Luego se compone sobre el canvas principal.
+    // ──────────────────────────────────────────────
+
+    _renderTramasLayer(W, H, forma, formaParams) {
+        const ctx = this.ctx;
+        const dpr = devicePixelRatio || 1;
+
+        // Redimensionar tramas canvas si cambió el viewport
+        const cw = Math.round(W * dpr);
+        const ch = Math.round(H * dpr);
+        if (this._tramasCanvas.width !== cw || this._tramasCanvas.height !== ch) {
+            this._tramasCanvas.width = cw;
+            this._tramasCanvas.height = ch;
+        }
+
+        // Apuntar temporalmente this.ctx al canvas de tramas
+        const originalCtx = this.ctx;
+        this.ctx = this._tramasCtx;
+
+        // Limpiar tramas canvas con fondo transparente
+        this._tramasCtx.clearRect(0, 0, cw, ch);
+        // Resetear transform y aplicar DPR scale (como en el canvas principal)
+        this._tramasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // Renderizar la forma activa
         switch (forma) {
             case 'numeros':    this._renderNumeros(W, H, formaParams); break;
             case 'letras':     this._renderNumeros(W, H, formaParams, true); break;
             case 'geometrias': this._renderGeometrias(W, H, formaParams); break;
             case 'constelaciones': this._renderConstelaciones(W, H, formaParams); break;
         }
+
+        // Restaurar ctx original
+        this.ctx = originalCtx;
+
+        // Componer la capa de tramas sobre el canvas principal
+        ctx.drawImage(this._tramasCanvas, 0, 0, W, H);
     },
 
     // ──────────────────────────────────────────────
@@ -732,6 +807,164 @@ export const Engine = {
     },
 
     // ──────────────────────────────────────────────
+    //  EFECTOS DE VIDEO: pipeline de procesamiento
+    // ──────────────────────────────────────────────
+
+    _renderVideoBackground(W, H) {
+        const ctx = this.ctx;
+        const videoEl = document.getElementById('bg-video');
+        const ef = AppState.efectos;
+
+        // Fallback: si no hay video, limpiar el canvas
+        if (!videoEl || !videoEl.videoWidth) {
+            ctx.clearRect(0, 0, W, H);
+            return;
+        }
+
+        const dpr = devicePixelRatio || 1;
+        const w = Math.round(W * dpr);
+        const h = Math.round(H * dpr);
+
+        // Redimensionar canvas de efectos si cambió el viewport
+        if (this._efectsCanvas.width !== w || this._efectsCanvas.height !== h) {
+            this._efectsCanvas.width = w;
+            this._efectsCanvas.height = h;
+        }
+
+        const pCtx = this._efectsCtx;
+
+        // ── 1. Dibujar frame del video a tamaño completo ──
+        pCtx.save();
+        pCtx.scale(dpr, dpr);
+        pCtx.drawImage(videoEl, 0, 0, W, H);
+        pCtx.restore();
+
+        // ── 2. Pixelart: downsampling + nearest-neighbor upscale ──
+        if (ef.pixelart.activo) {
+            this._applyPixelart(pCtx, w, h);
+        }
+
+        // ── 3. Caleidoscopio: simetría radial ──
+        if (ef.caleidoscopio.activo) {
+            this._applyCaleidoscopio(pCtx, w, h);
+        }
+
+        // ── 4. Noise: superposición de grano sobre el resultado (EN el canvas oculto) ──
+        if (ef.noise.activo) {
+            this._renderNoise(pCtx, this._efectsCanvas);
+        }
+
+        // ── 5. Dibujar el resultado procesado en el canvas principal ──
+        //    (ya con todos los efectos: pixelart, caleidoscopio y noise)
+        ctx.drawImage(this._efectsCanvas, 0, 0, W, H);
+    },
+
+    _applyPixelart(pCtx, w, h) {
+        const pixelSize = AppState.efectos.pixelart.tamanioPixel;
+        if (pixelSize <= 1) return;
+
+        const cols = Math.ceil(w / pixelSize);
+        const rows = Math.ceil(h / pixelSize);
+
+        // Reusar temp canvas para evitar allocaciones por frame
+        this._pixelTempCanvas.width = cols;
+        this._pixelTempCanvas.height = rows;
+        const tempCtx = this._pixelTempCanvas.getContext('2d');
+        tempCtx.imageSmoothingEnabled = false;
+        tempCtx.drawImage(this._efectsCanvas, 0, 0, cols, rows);
+
+        // Upsample con nearest-neighbor
+        pCtx.imageSmoothingEnabled = false;
+        pCtx.drawImage(this._pixelTempCanvas, 0, 0, w, h);
+        pCtx.imageSmoothingEnabled = true;
+    },
+
+    _applyCaleidoscopio(pCtx, w, h) {
+        const segments = AppState.efectos.caleidoscopio.segmentos;
+        if (segments < 2) return;
+
+        // Reusar temp canvas
+        this._kaleidTempCanvas.width = w;
+        this._kaleidTempCanvas.height = h;
+        const srcCtx = this._kaleidTempCanvas.getContext('2d');
+        srcCtx.drawImage(this._efectsCanvas, 0, 0);
+
+        // Limpiar y reconstruir con simetría radial
+        pCtx.clearRect(0, 0, w, h);
+
+        const cx = w / 2;
+        const cy = h / 2;
+        const halfSegs = Math.max(1, Math.round(segments / 2));
+        const arcAngle = Math.PI / halfSegs;
+        const maxRadius = Math.sqrt(cx * cx + cy * cy) * 1.5;
+
+        for (let i = 0; i < halfSegs; i++) {
+            const angle = i * arcAngle;
+
+            // Segmento en sentido horario
+            this._drawWedge(pCtx, this._kaleidTempCanvas, cx, cy, angle, arcAngle, i % 2 === 1, maxRadius);
+
+            // Segmento reflejado en sentido antihorario
+            this._drawWedge(pCtx, this._kaleidTempCanvas, cx, cy, -angle - arcAngle, arcAngle, (i + 1) % 2 === 1, maxRadius);
+        }
+    },
+
+    _drawWedge(pCtx, srcCanvas, cx, cy, startAngle, arcAngle, mirrored, radius) {
+        pCtx.save();
+        pCtx.translate(cx, cy);
+        pCtx.rotate(startAngle);
+
+        if (mirrored) {
+            pCtx.scale(-1, 1);
+        }
+
+        // Clip a la forma de cuña
+        pCtx.beginPath();
+        pCtx.moveTo(0, 0);
+        pCtx.arc(0, 0, radius, 0, arcAngle);
+        pCtx.closePath();
+        pCtx.clip();
+
+        // Dibujar la fuente centrada en el origen
+        pCtx.drawImage(srcCanvas, -cx, -cy);
+
+        pCtx.restore();
+    },
+
+    _renderNoise(ctx, canvasEl) {
+        const intensidad = AppState.efectos.noise.intensidad;
+        if (intensidad <= 0) return;
+
+        this._noiseSeed += 1;
+
+        // Usar dimensiones del canvas pasado (en píxeles físicos, no CSS)
+        // Generalmente es _efectsCanvas (offscreen) para no tocar el canvas principal
+        const cw = canvasEl.width;
+        const ch = canvasEl.height;
+
+        const imageData = ctx.getImageData(0, 0, cw, ch);
+        const data = imageData.data;
+        const len = data.length;
+
+        // Grano animado con semi-aleatoriedad determinista (ruido perceptual)
+        let rng = this._noiseSeed * 12345 + 67890;
+
+        for (let i = 0; i < len; i += 4) {
+            // Generar valor pseudoaleatorio rápido
+            rng = (rng * 1103515245 + 12345) & 0x7fffffff;
+            const noise = ((rng & 0xff) / 255) * 2 - 1; // -1 a 1
+
+            // Mezclar noise con el píxel original
+            const alpha = intensidad * 0.5;
+            data[i]     = Math.max(0, Math.min(255, data[i]     + noise * 255 * alpha));
+            data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise * 255 * alpha));
+            data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise * 255 * alpha));
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+    },
+
+    // ──────────────────────────────────────────────
     //  MÉTODOS PÚBLICOS (compatibilidad con controles)
     // ──────────────────────────────────────────────
 
@@ -781,9 +1014,37 @@ export const Engine = {
         }
 
         this.settings.bgMode = 'video';
+        this._hasSource = true;
     },
 
     applyBgImage(dataUrl) {
         this.settings.bgImage = dataUrl;
+    },
+
+    // ──────────────────────────────────────────────
+    //  EMPTY STATE: lienzo negro con mensaje central
+    // ──────────────────────────────────────────────
+
+    _renderEmptyState(ctx, W, H) {
+        // Fondo negro
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, W, H);
+
+        // Pulso sutil para dar vida
+        this._emptyStatePulse += 0.02;
+        const pulse = 0.5 + 0.15 * Math.sin(this._emptyStatePulse);
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Texto principal: [ ESPERANDO SEÑAL ]
+        ctx.fillStyle = `rgba(180, 180, 180, ${pulse})`;
+        ctx.font = '600 16px "Inter", sans-serif';
+        ctx.fillText('[ ESPERANDO SEÑAL ]', W / 2, H / 2 - 22);
+
+        // Subtítulo
+        ctx.fillStyle = `rgba(140, 140, 150, ${0.4 + 0.1 * Math.sin(this._emptyStatePulse * 0.7)})`;
+        ctx.font = '400 12px "Inter", sans-serif';
+        ctx.fillText('Arrastre un video a la línea de tiempo para activar el sistema.', W / 2, H / 2 + 12);
     }
 };

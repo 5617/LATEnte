@@ -72,11 +72,23 @@ export const AppState = {
         }
     },
 
+    // ── EFECTOS DE VIDEO ──
+    efectos: {
+        caleidoscopio: { activo: false, segmentos: 6 },
+        pixelart:      { activo: false, tamanioPixel: 8 },
+        noise:         { activo: false, intensidad: 0.15 }
+    },
+
+    // ── TRAMAS VISUALES ──
+    tramasActivas: false,
+
     // ── TIMELINE (Línea de Tiempo inferior) ──
     timeline: {
-        clips: [],       // Array de { id, name, start, duration } en orden secuencial
+        clips: [],       // Array de { id, name, src, start, duration, filmstrip[] } en orden secuencial
         isPlaying: false,
         currentClipId: null,
+        currentClipIndex: -1,
+        elapsed: 0,      // segundos acumulados desde 0 hasta totalDuration
         nextId: 1
     },
 
