@@ -151,23 +151,28 @@ body {
    ═══════════════════════════════════════════════ */
 
 .control-group {
-    margin-bottom: 4px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.control-group:first-of-type {
+    padding-top: 0;
 }
 
 .control-group:last-of-type {
     border-bottom: none;
+    padding-bottom: 0;
 }
 
-/* ─── Títulos de acordeón (h3) ─── */
+/* ─── Títulos de acordeón (h3) — Jerarquía principal ─── */
 h3 {
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     text-transform: uppercase;
     color: var(--text-main);
     margin-bottom: 0;
-    letter-spacing: 0.8px;
-    font-weight: 600;
+    letter-spacing: 1.2px;
+    font-weight: 700;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1814,6 +1819,21 @@ input[type="range"]::-moz-range-thumb:hover {
 /* ─── Geometría wrapper ─── */
 .geometria-tipo-wrapper {
     margin: 4px 0 6px;
+}
+
+/* ═══════════════════════════════════════════════
+   TRAMAS MASTER TOGGLE (Control Maestro)
+   ═══════════════════════════════════════════════ */
+
+#tramas-opciones-container.tramas-disabled {
+    opacity: 0.35;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 0.25s ease;
+}
+
+#tramas-opciones-container {
+    transition: opacity 0.25s ease;
 }
 
 /* ═══════════════════════════════════════════════
