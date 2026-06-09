@@ -68,9 +68,6 @@ export const Controls = {
                 if (isOpen) {
                     closeSection(section);
                 } else {
-                    document.querySelectorAll('.control-group').forEach(other => {
-                        if (other !== section) closeSection(other);
-                    });
                     content.classList.add('open');
                     if (arrow) arrow.classList.add('open');
                 }
@@ -1387,9 +1384,14 @@ export const Controls = {
     // ── Toggle Tramas Visuales on/off ──
     _setupTramasActivas() {
         const check = document.getElementById('tramas-activas-check');
-        if (check) {
+        const container = document.getElementById('tramas-opciones-container');
+        if (check && container) {
+            // Estado inicial: si el checkbox arranca desmarcado, aplicar clase
+            container.classList.toggle('tramas-disabled', !check.checked);
+
             check.addEventListener('change', () => {
                 AppState.tramasActivas = check.checked;
+                container.classList.toggle('tramas-disabled', !check.checked);
             });
         }
     },

@@ -67,9 +67,10 @@ export const Engine = {
 
         // Resize handler
         const resize = () => {
-            this.canvas.width = this.canvas.clientWidth * devicePixelRatio;
-            this.canvas.height = this.canvas.clientHeight * devicePixelRatio;
-            this.ctx.scale(devicePixelRatio, devicePixelRatio);
+            const dpr = devicePixelRatio || 1;
+            this.canvas.width = Math.round(this.canvas.clientWidth * dpr);
+            this.canvas.height = Math.round(this.canvas.clientHeight * dpr);
+            this.ctx.scale(dpr, dpr);
         };
         resize();
         window.addEventListener('resize', resize);
@@ -490,6 +491,10 @@ export const Engine = {
         const velMod = this._modularVelocidad(centerIdx, formaParams);
         this.time += 0.016 * this.settings.speed * (0.3 + 1.7 * velMod);
 
+        // ── Siempre limpiar el canvas principal primero para evitar acumulación ──
+        //    de frames anteriores (ghosting) debido a redondeos sub-pixel.
+        ctx.clearRect(0, 0, W, H);
+
         // ── CAPA 1: Fondo de video con efectos (cascada caleidoscopio/pixelart/noise) ──
         const tieneEfectos = AppState.efectos?.caleidoscopio?.activo
             || AppState.efectos?.pixelart?.activo
@@ -497,10 +502,9 @@ export const Engine = {
 
         if (tieneEfectos) {
             this._renderVideoBackground(W, H);
-        } else {
-            // Fondo transparente: el <video> detrás del canvas se ve a través
-            ctx.clearRect(0, 0, W, H);
         }
+        // Si no hay efectos, el canvas ya quedó transparente por clearRect
+        // y el <video> detrás se ve a través
 
         // ── CAPA 2: Tramas visuales renderizadas en su propio canvas independiente ──
         // Esto asegura que los filtros (caleidoscopio, pixelart, noise) solo afecten
